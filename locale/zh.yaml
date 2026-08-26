@@ -158,3 +158,6 @@
 'Delete ALL similarity pairs and reports of this contest? This cannot be undone.': 确定删除该比赛的全部相似对与报告？此操作不可撤销。
 'Uncheck metrics that saturate on trivial problems — keep only the discriminating ones. Your selection is remembered.': 简单题的函数/结构等指标人人趋同，可取消勾选、只保留有区分度的指标（选择会被记住）。
 'Failed to load graph data': 关系网数据加载失败
+'All metrics': 全部指标
+'Only show pairs where this metric is at least the given value — e.g. Var on trivial problems where everything else saturates.': 只显示该指标不低于给定值的相似对——例如简单题上其它指标都趋同时只看变量。选中后列表按该指标降序排列。
+'Percent for metrics, line count for shared comments': 指标填百分比，共享注释填行数

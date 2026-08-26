@@ -302,13 +302,34 @@ export class SimDetailHandler extends SimBaseHandler {
     @param('pid', Types.PositiveInt, true)
     @param('page', Types.PositiveInt, true)
     @param('user', Types.UidOrName, true)
-    async get(domainId: string, tid: ObjectId, level = '1', pid?: number, page = 1, user = '') {
+    // metric filter: only pairs where this evidence metric is at least the
+    // given value (trivial problems saturate Seq/TF-IDF/Func/Struct for
+    // everyone — Var is often the only signal left)
+    @param('metric', Types.Range(['seq', 'tfidf', 'var', 'func', 'struct', 'comments']), true)
+    @param('metricGte', Types.Float, true)
+    async get(
+        domainId: string, tid: ObjectId, level = '1', pid?: number, page = 1, user = '',
+        metric = '', metricGte = -1,
+    ) {
         const tdoc = await ContestModel.get(domainId, tid);
         if (!tdoc) throw new NotFoundError(tid);
         const report = await getLatestReport(domainId, tid);
         const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
         const query: any = { domainId, tid, level: { $gte: minLevel } };
         if (pid) query.pid = pid;
+        const METRIC_FIELDS: Record<string, string> = {
+            seq: 'simSeq', tfidf: 'simTfidf', var: 'simVar',
+            func: 'simFunc', struct: 'simStruct', comments: 'sharedComments',
+        };
+        let metricField = '';
+        if (metric && METRIC_FIELDS[metric]) {
+            metricField = METRIC_FIELDS[metric];
+            // the form sends percent for ratio metrics, a line count for
+            // shared comments; defaults: 70% / 1 line
+            const gte = metricGte >= 0 ? metricGte : (metric === 'comments' ? 1 : 70);
+            query[metricField] = { $gte: metric === 'comments' ? Math.round(gte) : gte / 100 };
+        }
+        const metricGteDisplay = metricGte >= 0 ? metricGte : (metric === 'comments' ? 1 : 70);
         // user filter: resolve name/mail/uid the same way the record list does
         let filterUid = 0;
         let filterUdoc: any = null;
@@ -319,7 +340,14 @@ export class SimDetailHandler extends SimBaseHandler {
             filterUid = filterUdoc?._id || 0;
             if (filterUid) query.$or = [{ uid1: filterUid }, { uid2: filterUid }];
         }
-        const cursor = collPair.find(query).sort({ similarity: -1, pid: 1 });
+        // with a metric filter active, that metric is the ranking that matters
+        // (overall similarity is saturated noise on exactly these problems)
+        const sort: Record<string, -1 | 1> = { similarity: -1, pid: 1 };
+        if (metricField && metricField !== 'sharedComments') {
+            delete sort.similarity;
+            sort[metricField] = -1;
+        }
+        const cursor = collPair.find(query).sort(sort);
         const [pairs, tpcount] = await this.paginate(cursor, page, PAGE_SIZE);
         const pids = Array.from(new Set(pairs.map((p) => p.pid).concat(tdoc.pids)));
 
@@ -376,6 +404,7 @@ export class SimDetailHandler extends SimBaseHandler {
             // view helper (an object), which shadowed it and rendered
             // "[object Object]" into the filter box
             userFilter: user, filterUdoc, userSummary,
+            metric, metricGteDisplay,
             minLevels: [1, 2, 3],
             thresholds: report?.config?.thresholds || readConfig(this.ctx).thresholds,
             urlDiff: (pair: PairDoc) => this.url('domain_sim_diff', { tid, pairId: pair._id }),
@@ -385,7 +414,7 @@ export class SimDetailHandler extends SimBaseHandler {
             urlDebug: this.url('domain_sim_debug', { tid }),
             urlContest: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_detail', { tid }),
             urlContestManage: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_manage', { tid }),
-            qs: `level=${minLevel}${pid ? `&pid=${pid}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}`,
+            qs: `level=${minLevel}${pid ? `&pid=${pid}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${metric ? `&metric=${metric}&metricGte=${metricGteDisplay}` : ''}`,
         };
     }
 

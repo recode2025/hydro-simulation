@@ -256,6 +256,17 @@
             <option value="{{ p }}"{% if pid == p %} selected{% endif %}>#{{ p }} {{ pdict[p].title|default('') }}</option>
           {%- endfor -%}
         </select>
+        <select class="inline compact select" name="metric" title="{{ _('Only show pairs where this metric is at least the given value — e.g. Var on trivial problems where everything else saturates.') }}">
+          <option value=""{% if not metric %} selected{% endif %}>{{ _('All metrics') }}</option>
+          <option value="seq"{% if metric == 'seq' %} selected{% endif %}>{{ _('Seq') }}</option>
+          <option value="tfidf"{% if metric == 'tfidf' %} selected{% endif %}>TF-IDF</option>
+          <option value="var"{% if metric == 'var' %} selected{% endif %}>{{ _('Var') }}</option>
+          <option value="func"{% if metric == 'func' %} selected{% endif %}>{{ _('Func') }}</option>
+          <option value="struct"{% if metric == 'struct' %} selected{% endif %}>{{ _('Struct') }}</option>
+          <option value="comments"{% if metric == 'comments' %} selected{% endif %}>{{ _('Shared comments') }}</option>
+        </select>
+        <span class="supplementary">≥</span>
+        <input type="number" class="inline compact textbox sim-input-num" name="metricGte" min="0" max="100" step="5" value="{{ metricGteDisplay }}" title="{{ _('Percent for metrics, line count for shared comments') }}">
         <input type="text" class="inline compact textbox" name="user" value="{{ userFilter }}" placeholder="{{ _('Filter by user (name or ID)') }}">
         <button type="submit" class="button hasjs--hide">{{ _('Filter') }}</button>
       </form>
@@ -440,6 +451,6 @@
   setInterval(poll, 3000);
 })();
 </script>
-<script src="{{ UiContext.cdn_prefix }}sim/evmetrics.js?v=5" defer></script>
 {% endif %}
+<script src="{{ UiContext.cdn_prefix }}sim/evmetrics.js?v=5" defer></script>
 {% endblock %}
