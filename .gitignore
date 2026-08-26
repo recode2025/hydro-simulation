@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+
+# build output / caches
+dist/
+.cache/
+*.tsbuildinfo
+
+# test / coverage
+coverage/
+.nyc_output/
+
+# logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Hydro 本地联调时生成的运行时文件（.addons.yaml / .hydro / 上传与存储目录）
+.addons.yaml
+.hydro/
+files/
+storage/
+
+# editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# env
+.env
+.env.*

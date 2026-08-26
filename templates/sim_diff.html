@@ -1,0 +1,74 @@
+{% extends "domain_base.html" %}
+{% block domain_content %}
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css">
+<div class="section">
+  <div class="section__header">
+    <h1 class="section__title" data-heading>{{ _('Code Diff') }} — #{{ pair.pid }} {{ pdict[pair.pid].title|default('') if pdict else '' }}</h1>
+    <div class="section__tools">
+      <a class="rounded button" href="{{ urlBack }}">{{ _('Back to report') }}</a>
+    </div>
+  </div>
+  <div class="section__body">
+    <p>
+      {% if pair.level == 3 %}<span class="sim-badge sim-badge--3">{{ _('Identical') }}</span>
+      {% elif pair.level == 2 %}<span class="sim-badge sim-badge--2">{{ _('High') }}</span>
+      {% else %}<span class="sim-badge sim-badge--1">{{ _('Suspected') }}</span>{% endif %}
+      <span class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</span>
+      {{ _('Sørensen–Dice coefficient over normalized k-gram fingerprints') }}
+    </p>
+    <div class="row">
+      <div class="medium-6 columns">
+        {% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}
+        <a class="supplementary" href="{{ urlRecord1 }}">{{ lang1 }} · {{ _('record') }}</a>
+      </div>
+      <div class="medium-6 columns">
+        {% if udict[pair.uid2] %}{{ user.render_inline(udict[pair.uid2]) }}{% else %}{{ pair.uid2 }}{% endif %}
+        <a class="supplementary" href="{{ urlRecord2 }}">{{ lang2 }} · {{ _('record') }}</a>
+      </div>
+    </div>
+    {% if degraded %}
+      <blockquote class="warn typo">
+        {{ _('Files too large for highlight; showing plain side-by-side view.') }}
+      </blockquote>
+    {% endif %}
+  </div>
+  <div class="section__body no-padding">
+    <div class="sim-diff-wrap">
+      <table class="sim-diff">
+        <tbody>
+        {% if degraded %}
+          {% set n = [a.length, b.length]|max %}
+          {% for i in range(0, n) %}
+          <tr>
+            <td class="sim-diff__ln">{{ i + 1 }}</td>
+            <td class="sim-diff__code">{{ a[i].text|default('') }}</td>
+            <td class="sim-diff__ln">{{ i + 1 }}</td>
+            <td class="sim-diff__code">{{ b[i].text|default('') }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          {% for row in rows %}
+          <tr>
+            {% if row.l %}
+              <td class="sim-diff__ln">{{ row.l }}</td>
+              <td class="sim-diff__code sim-diff--{{ row.type }}">{{ a[row.l - 1].text|default('') }}</td>
+            {% else %}
+              <td class="sim-diff__ln"></td>
+              <td class="sim-diff__code sim-diff--empty"></td>
+            {% endif %}
+            {% if row.r %}
+              <td class="sim-diff__ln">{{ row.r }}</td>
+              <td class="sim-diff__code sim-diff--{{ row.type }}">{{ b[row.r - 1].text|default('') }}</td>
+            {% else %}
+              <td class="sim-diff__ln"></td>
+              <td class="sim-diff__code sim-diff--empty"></td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

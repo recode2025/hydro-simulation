@@ -1,0 +1,159 @@
+{% extends "domain_base.html" %}
+{% block domain_content %}
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css">
+<div class="section">
+  <div class="section__header">
+    <h1 class="section__title" data-heading>
+      {{ _('Similarity Report') }}{% if isHomework %} — {{ _('Homework') }}{% endif %}: {{ tdoc.title }}
+    </h1>
+    <div class="section__tools">
+      <a class="rounded button" href="{{ urlContestManage }}">
+        <span class="icon icon-settings"></span> {{ _('Contest Management') }}
+      </a>
+      <a class="rounded button" href="{{ urlGraph }}">
+        <span class="icon icon-org"></span> {{ _('Plagiarism Network') }}
+      </a>
+    </div>
+  </div>
+  <div class="section__body">
+  {% if not report or report.status != 'done' %}
+    {% if not report %}
+      <p>{{ _('This contest has not been scanned yet.') }}</p>
+    {% elif report.status == 'waiting' %}
+      <p><span class="sim-badge sim-badge--waiting">{{ _('Waiting') }}</span> {{ _('The scan is queued and will run soon.') }}</p>
+    {% elif report.status == 'running' %}
+      <p><span class="sim-badge sim-badge--running">{{ _('Running') }} {{ report.progress.processed }}/{{ report.progress.total }}</span> {{ _('Scan is in progress; refresh this page later.') }}</p>
+    {% else %}
+      <p><span class="sim-badge sim-badge--failed">{{ _('Failed') }}</span> <code>{{ report.error }}</code></p>
+    {% endif %}
+    <form method="post" class="sim-inline-form">
+      <input type="hidden" name="operation" value="rerun">
+      <input type="hidden" name="tid" value="{{ tid }}">
+      <select class="inline compact select" name="mode">
+        <option value="latest"{% if report and report.mode == 'latest' %} selected{% endif %}>{{ _('Latest per user') }}</option>
+        <option value="all"{% if report and report.mode == 'all' %} selected{% endif %}>{{ _('All submissions') }}</option>
+      </select>
+      <span class="supplementary sim-th-inputs" title="{{ _('Similarity thresholds (leave defaults if unsure)') }}">
+        <span>{{ _('Identical') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tIdentical" step="0.05" min="0.05" max="1" value="{{ thresholds.identical }}">
+        <span>{{ _('High') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tHigh" step="0.05" min="0.05" max="1" value="{{ thresholds.high }}">
+        <span>{{ _('Suspected') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tSuspected" step="0.05" min="0.05" max="1" value="{{ thresholds.suspected }}">
+      </span>
+      <button type="submit" class="primary rounded button">{{ _('Scan now') }}</button>
+    </form>
+  {% else %}
+    <dl class="large horizontal sim-stats">
+      <dt>{{ _('Mode') }}</dt><dd>{{ _('Latest per user') if report.mode == 'latest' else _('All submissions') }}</dd>
+      <dt>{{ _('Thresholds') }}</dt>
+      <dd>
+        <span class="sim-badge sim-badge--3">{{ _('Identical') }} ≥ {{ report.config.thresholds.identical }}</span>
+        <span class="sim-badge sim-badge--2">{{ _('High') }} ≥ {{ report.config.thresholds.high }}</span>
+        <span class="sim-badge sim-badge--1">{{ _('Suspected') }} ≥ {{ report.config.thresholds.suspected }}</span>
+      </dd>
+      <dt>{{ _('Users') }}</dt><dd>{{ report.stats.users }}</dd>
+      <dt>{{ _('Submissions scanned') }}</dt><dd>{{ report.stats.submissions }}{% if report.stats.skipped %} <span class="supplementary">({{ report.stats.skipped }} {{ _('skipped') }})</span>{% endif %}</dd>
+      <dt>{{ _('Similar pairs') }}</dt>
+      <dd>
+        <span class="sim-badge sim-badge--3">{{ _('Identical') }} {{ report.stats.l3 }}</span>
+        <span class="sim-badge sim-badge--2">{{ _('High') }} {{ report.stats.l2 }}</span>
+        <span class="sim-badge sim-badge--1">{{ _('Suspected') }} {{ report.stats.l1 }}</span>
+      </dd>
+      <dt>{{ _('Finished at') }}</dt><dd>{{ datetimeSpan(report.finishedAt, false, 'YYYY-MM-DD HH:mm')|safe }}</dd>
+    </dl>
+  {% endif %}
+  </div>
+</div>
+
+{% if report and report.status == 'done' %}
+<div class="section">
+  <div class="section__header">
+    <h1 class="section__title">{{ _('Similar Pairs') }}</h1>
+    <div class="section__tools">
+      <form method="get" name="filter-form">
+        <select class="inline compact select" name="level">
+          <option value="1"{% if level == '1' %} selected{% endif %}>{{ _('Suspected and above') }}</option>
+          <option value="2"{% if level == '2' %} selected{% endif %}>{{ _('High and above') }}</option>
+          <option value="3"{% if level == '3' %} selected{% endif %}>{{ _('Identical only') }}</option>
+        </select>
+        <select class="inline compact select" name="pid">
+          <option value="">{{ _('All problems') }}</option>
+          {%- for p in tdoc.pids -%}
+            <option value="{{ p }}"{% if pid == p %} selected{% endif %}>#{{ p }} {{ pdict[p].title|default('') }}</option>
+          {%- endfor -%}
+        </select>
+        <button type="submit" class="button hasjs--hide">{{ _('Filter') }}</button>
+      </form>
+    </div>
+  </div>
+  <div class="section__body no-padding">
+  {% if not pairs.length %}
+    {{ nothing.render('No similar pair found...') }}
+  {% else %}
+    <table class="data-table sim-table">
+      <thead>
+        <tr>
+          <th>{{ _('Level') }}</th>
+          <th>{{ _('Similarity') }}</th>
+          <th>{{ _('User') }} 1</th>
+          <th>{{ _('User') }} 2</th>
+          <th>{{ _('Problem') }}</th>
+          <th>{{ _('Language') }}</th>
+          <th>{{ _('Operations') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {%- for pair in pairs -%}
+        <tr>
+          <td>
+            {% if pair.level == 3 %}<span class="sim-badge sim-badge--3">{{ _('Identical') }}</span>
+            {% elif pair.level == 2 %}<span class="sim-badge sim-badge--2">{{ _('High') }}</span>
+            {% else %}<span class="sim-badge sim-badge--1">{{ _('Suspected') }}</span>{% endif %}
+          </td>
+          <td class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</td>
+          <td>
+            {% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}
+            <a class="supplementary" href="{{ urlRecord(pair.rid1) }}">#{{ pair.rid1.toString().slice(-6) }}</a>
+          </td>
+          <td>
+            {% if udict[pair.uid2] %}{{ user.render_inline(udict[pair.uid2]) }}{% else %}{{ pair.uid2 }}{% endif %}
+            <a class="supplementary" href="{{ urlRecord(pair.rid2) }}">#{{ pair.rid2.toString().slice(-6) }}</a>
+          </td>
+          <td>#{{ pair.pid }} {{ pdict[pair.pid].title|default('') }}</td>
+          <td class="supplementary">{{ pair.lang1 }}{% if pair.lang2 != pair.lang1 %} / {{ pair.lang2 }}{% endif %}</td>
+          <td><a class="rounded button" href="{{ urlDiff(pair) }}">{{ _('Diff') }}</a></td>
+        </tr>
+      {%- endfor -%}
+      </tbody>
+    </table>
+    {{ paginator.render(page, tpcount, add_qs=qs) }}
+  {% endif %}
+  </div>
+</div>
+
+<div class="section">
+  <div class="section__header">
+    <h1 class="section__title">{{ _('Danger Zone') }}</h1>
+  </div>
+  <div class="section__body">
+    <form method="post" class="sim-inline-form">
+      <input type="hidden" name="operation" value="rerun">
+      <input type="hidden" name="tid" value="{{ tid }}">
+      <select class="inline compact select" name="mode">
+        <option value="latest">{{ _('Latest per user') }}</option>
+        <option value="all">{{ _('All submissions') }}</option>
+      </select>
+      <span class="supplementary sim-th-inputs" title="{{ _('Similarity thresholds (leave defaults if unsure)') }}">
+        <span>{{ _('Identical') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tIdentical" step="0.05" min="0.05" max="1" value="{{ thresholds.identical }}">
+        <span>{{ _('High') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tHigh" step="0.05" min="0.05" max="1" value="{{ thresholds.high }}">
+        <span>{{ _('Suspected') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tSuspected" step="0.05" min="0.05" max="1" value="{{ thresholds.suspected }}">
+      </span>
+      <button type="submit" class="primary rounded button">{{ _('Rerun scan') }}</button>
+    </form>
+    <form method="post" class="sim-inline-form">
+      <input type="hidden" name="operation" value="delete">
+      <input type="hidden" name="tid" value="{{ tid }}">
+      <button type="submit" class="rounded button">{{ _('Delete report') }}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

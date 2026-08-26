@@ -1,0 +1,85 @@
+# hydrooj-similarity locale (en)
+'Sim Detection': Sim Detection
+'domain_sim_list': Code Similarity
+'domain_sim_detail': Similarity Report
+'domain_sim_diff': Code Diff
+'domain_sim_graph': Plagiarism Network
+'domain_sim_graph_api': Plagiarism Network Data
+'contest_sim': Contest Similarity
+
+'Code Similarity Detection': Code Similarity Detection
+'Contests & Homework': Contests & Homework
+'Contests only': Contests only
+'Homework only': Homework only
+'Not scanned': Not scanned
+'Not ended yet': Not ended yet
+'Scan': Scan
+'Scan again': Scan again
+'Delete report': Delete report
+'Network': Network
+
+'Similarity Report': Similarity Report
+'Mode': Mode
+'Users': Users
+'Submissions scanned': Submissions scanned
+'skipped': skipped
+'Similar pairs': Similar pairs
+'Finished at': Finished at
+'This contest has not been scanned yet.': This contest has not been scanned yet.
+'The scan is queued and will run soon.': The scan is queued and will run soon.
+'Scan is in progress; refresh this page later.': Scan is in progress; refresh this page later.
+'The scan failed: {0}': 'The scan failed: {0}'
+'Similar Pairs': Similar Pairs
+'Suspected and above': Suspected and above
+'High and above': High and above
+'Identical only': Identical only
+'All problems': All problems
+'No similar pair found...': No similar pair found...
+'Danger Zone': Danger Zone
+'Rerun scan': Rerun scan
+'Scan now': Scan now
+'Diff': Diff
+'Waiting': Waiting
+'Running': Running
+'Done': Done
+'Failed': Failed
+
+'Identical': Identical
+'High': High
+'Suspected': Suspected
+'None': None
+
+'Thresholds': Thresholds
+'Similarity thresholds (leave defaults if unsure)': Similarity thresholds (leave defaults if unsure)
+'Identical threshold': Identical threshold
+'High threshold': High threshold
+'Suspected threshold': Suspected threshold
+
+'Code Diff': Code Diff
+'Back to report': Back to report
+'record': record
+'Sørensen–Dice coefficient over normalized k-gram fingerprints': Sørensen–Dice coefficient over normalized k-gram fingerprints
+'Files too large for highlight; showing plain side-by-side view.': Files too large for highlight; showing plain side-by-side view.
+
+'Plagiarism Network': Plagiarism Network
+'Drag nodes · click a node to highlight · click an edge to open diff': Drag nodes · click a node to highlight · click an edge to open diff
+'No similar pair to display': No similar pair to display
+
+'sim.threshold.identical': Identical threshold
+'sim.threshold.high': High similarity threshold
+'sim.threshold.suspected': Suspected similarity threshold
+'sim.kgram': k-gram size
+'sim.minTokens': Minimum tokens (skip shorter code)
+'sim.maxCodeSize': Maximum code size in bytes
+'sim.submissionMode': Default submission mode
+'sim.scope': Auto scan scope
+'sim.autoScan': Enable auto scan
+'sim.graceMinutes': Delay after contest ends (minutes)
+'sim.sweepBatch': Catch-up scans per sweep
+'sim.scanWindowDays': Catch-up lookback window (days)
+'sim.diffCellLimit': Diff highlight cell limit
+'sim_mode_latest': Latest submission per user per problem
+'sim_mode_all': All submissions
+'sim_scope_contest': Contests only
+'sim_scope_homework': Homework only
+'sim_scope_both': Contests & homework

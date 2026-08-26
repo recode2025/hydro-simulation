@@ -1,0 +1,92 @@
+# hydrooj-similarity locale (zh)
+'Sim Detection': 代码查重
+'domain_sim_list': 域内代码查重
+'domain_sim_detail': 查重报告
+'domain_sim_diff': 代码对比
+'domain_sim_graph': 抄袭关系网
+'domain_sim_graph_api': 抄袭关系网数据
+'contest_sim': 比赛代码查重
+
+# list page
+'Code Similarity Detection': 代码相似度查重
+'Contests & Homework': 比赛 + 作业
+'Contests only': 仅比赛
+'Homework only': 仅作业
+'Not scanned': 未查重
+'Not ended yet': 尚未结束
+'Scan': 立即查重
+'Scan again': 再次查重
+'Delete report': 删除报告
+'Network': 关系网
+
+# detail page
+'Similarity Report': 查重报告
+'Mode': 模式
+'Users': 参与用户
+'Submissions scanned': 扫描提交数
+'skipped': 已跳过
+'Similar pairs': 相似对
+'Finished at': 完成时间
+'This contest has not been scanned yet.': 该比赛尚未查重。
+'The scan is queued and will run soon.': 查重任务已排队，稍后自动执行。
+'Scan is in progress; refresh this page later.': 查重进行中，请稍后刷新本页。
+'The scan failed: {0}': 查重失败：{0}
+'Similar Pairs': 相似代码对
+'Suspected and above': 疑似及以上
+'High and above': 高度及以上
+'Identical only': 仅完全相同
+'All problems': 全部题目
+'No similar pair found...': 未发现相似代码对……
+'Danger Zone': 危险操作
+'Rerun scan': 重新查重
+'Scan now': 立即查重
+'Diff': 对比
+'Waiting': 排队中
+'Running': 进行中
+'Done': 已完成
+'Failed': 失败
+
+# levels
+'Identical': 完全相同
+'High': 高度
+'Suspected': 疑似
+'None': 无
+
+# thresholds
+'Thresholds': 相似度阈值
+'Similarity thresholds (leave defaults if unsure)': 相似度阈值（不确定时保持默认）
+'Identical threshold': 完全相同阈值
+'High threshold': 高度相似阈值
+'Suspected threshold': 疑似相似阈值
+
+# diff page
+'Code Diff': 代码对比
+'Back to report': 返回报告
+'record': 递交记录
+'Sørensen–Dice coefficient over normalized k-gram fingerprints': 基于归一化 k-gram 指纹的 Sørensen–Dice 相似度
+'Files too large for highlight; showing plain side-by-side view.': 文件过大无法高亮，已降级为普通并排视图。
+
+# graph page
+'Plagiarism Network': 抄袭关系网
+'Drag nodes · click a node to highlight · click an edge to open diff': 拖动节点 · 点击节点高亮 · 点击边打开对比
+'No similar pair to display': 没有可展示的相似对
+
+# settings
+'sim.threshold.identical': 完全相同阈值
+'sim.threshold.high': 高度相似阈值
+'sim.threshold.suspected': 疑似相似阈值
+'sim.kgram': k-gram 长度
+'sim.minTokens': 最小 token 数（过滤过短代码）
+'sim.maxCodeSize': 最大代码字节数
+'sim.submissionMode': 默认提交取样模式
+'sim.scope': 自动扫描范围
+'sim.autoScan': 启用自动扫描
+'sim.graceMinutes': 赛后延迟（分钟）
+'sim.sweepBatch': 每轮兜底扫描数
+'sim.scanWindowDays': 兜底扫描回溯窗口（天）
+'sim.diffCellLimit': diff 高亮单元格上限
+'sim_mode_latest': 每人每题取最后一次提交
+'sim_mode_all': 所有提交
+'sim_scope_contest': 仅比赛
+'sim_scope_homework': 仅作业
+'sim_scope_both': 比赛 + 作业
