@@ -179,6 +179,14 @@ export function getLatestReport(domainId: string, tid: ObjectId) {
     return collReport.findOne({ domainId, tid }, { sort: { createdAt: -1 } });
 }
 
+/** The in-flight (waiting/running) report for a contest, if any. */
+export function getActiveReport(domainId: string, tid: ObjectId) {
+    return collReport.findOne(
+        { domainId, tid, status: { $in: ['waiting', 'running'] } },
+        { sort: { createdAt: -1 } },
+    );
+}
+
 /** Latest report per tid for a batch (single query + JS reduce). */
 export async function getLatestReportMap(domainId: string, tids: ObjectId[]) {
     const docs = await collReport.find({ domainId, tid: { $in: tids } }, { sort: { createdAt: -1 } }).toArray();

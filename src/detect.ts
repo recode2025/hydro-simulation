@@ -177,20 +177,21 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         // ---- collect target rdocs, grouped by pid ----
         const byPid = new Map<number, any[]>();
         if (cfg.mode === 'latest') {
-            const [, tsdocs] = await ContestModel.getAndListStatus(domainId, tid);
-            const wanted = new Map<string, number>(); // ridHex -> uid
-            for (const tsdoc of tsdocs || []) {
-                for (const pid of Object.keys(tsdoc.detail || {})) {
-                    const rid = tsdoc.detail[pid]?.rid;
-                    if (rid) wanted.set(String(rid), tsdoc.uid);
-                }
-            }
-            const rdocs = await RecordModel.getMulti(domainId, {
-                _id: { $in: Array.from(wanted.keys()).map((r) => new ObjectId(r)) },
-            }).project({ code: 1, files: 1, lang: 1, uid: 1, pid: 1 }).toArray();
+            // newest submission per (uid, pid), taken straight from the record
+            // collection. (The previous tsdoc.detail-based path depended on
+            // the contest rule engine having recalculated status rids into
+            // detail — when that had not happened the scan silently
+            // collected ZERO submissions and the report read as "nothing
+            // was scanned".)
+            const rdocs = await RecordModel.getMulti(domainId, { contest: tid })
+                .project({ code: 1, files: 1, lang: 1, uid: 1, pid: 1 })
+                .sort({ _id: -1 }).toArray();
+            const latest = new Map<string, any>(); // `${uid}:${pid}` -> rdoc
             for (const rdoc of rdocs) {
-                const uid = wanted.get(rdoc._id.toHexString());
-                if (uid === undefined || rdoc.uid !== uid) continue;
+                const key = `${rdoc.uid}:${rdoc.pid}`;
+                if (!latest.has(key)) latest.set(key, rdoc);
+            }
+            for (const rdoc of latest.values()) {
                 if (!byPid.has(rdoc.pid)) byPid.set(rdoc.pid, []);
                 byPid.get(rdoc.pid)!.push(rdoc);
             }
@@ -205,10 +206,11 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
 
         const pids = Array.from(byPid.keys());
         if (!pids.length) {
-            // nothing collected: nearly always means the rid extraction found
-            // no scoring submissions — log loudly so "no results" is debuggable
+            // nothing collected: no record carries contest=tid for this
+            // contest — log loudly so "no results" is debuggable
             ctx.logger.warn(
-                'sim.scan %s: 0 submissions collected (mode=%s) — no tsdoc.detail rids matched any record',
+                'sim.scan %s: 0 submissions collected (mode=%s) — no record matches { contest: tid };'
+                + ' verify submissions exist for this contest',
                 tid.toHexString(), cfg.mode,
             );
         }

@@ -18,8 +18,8 @@ import { diffCellLimit, fetchCode, readConfig, runDetection } from './detect';
 import { lineDiff, splitLines } from './lib/lcs';
 import type { PairDoc } from './model';
 import {
-    casStatus, collPair, collReport, createReport, deleteContestData, getLatestReport,
-    getLatestReportMap,
+    casStatus, collPair, collReport, createReport, deleteContestData, getActiveReport,
+    getLatestReport, getLatestReportMap,
 } from './model';
 
 const PAGE_SIZE = 50;
@@ -74,9 +74,18 @@ async function triggerScan(
         config: { k: cfg.k, minTokens: cfg.minTokens, thresholds: resolveThresholds(override, cfg.thresholds) },
         triggeredBy: uid,
     });
-    if (!reportId) return false;
-    startScanNow(reportId);
-    return true;
+    if (reportId) {
+        startScanNow(reportId);
+        return true;
+    }
+    // A report is already in flight for this contest. If it is WAITING it may
+    // be a stale one whose execution was lost (crashed run, consumed task,
+    // pre-fix bug) — adopt it and run NOW instead of silently doing nothing,
+    // which the user reads as "stuck in queue forever". A running one is
+    // genuinely working: leave it alone.
+    const active = await getActiveReport(domainId, tid);
+    if (active?.status === 'waiting') startScanNow(active._id);
+    return false;
 }
 
 /**
@@ -315,6 +324,16 @@ export class SimDetailHandler extends SimBaseHandler {
         await triggerScan(this.ctx, domainId, tid, mode === 'all' ? 'all' : 'latest', this.user._id, {
             identical: tIdentical, high: tHigh, suspected: tSuspected,
         });
+        this.response.redirect = this.url('domain_sim_detail', { tid });
+    }
+
+    /** Claim a waiting report for this contest and execute it immediately
+     *  (the escape hatch for a scan stuck in the queue). */
+    @requireSudo
+    @param('tid', Types.ObjectId)
+    async postRunNow(domainId: string, tid: ObjectId) {
+        const report = await getActiveReport(domainId, tid);
+        if (report?.status === 'waiting') startScanNow(report._id);
         this.response.redirect = this.url('domain_sim_detail', { tid });
     }
 

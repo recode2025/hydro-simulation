@@ -29,6 +29,12 @@
       <p>{{ _('This contest has not been scanned yet.') }}</p>
     {% elif report.status == 'waiting' %}
       <p><span class="sim-badge sim-badge--waiting">{{ _('Waiting') }}</span> {{ _('The scan is queued and will run soon.') }}</p>
+      <form method="post" class="sim-inline-form">
+        <input type="hidden" name="operation" value="runNow">
+        <input type="hidden" name="tid" value="{{ tid }}">
+        <button type="submit" class="primary rounded button">{{ _('Run now') }}</button>
+        <span class="supplementary">{{ _('Claim this queued scan and execute it immediately') }}</span>
+      </form>
     {% elif report.status == 'running' %}
       <div class="sim-progress" data-sim-status-url="{{ urlStatus }}">
         <span class="sim-badge sim-badge--running">{{ _('Running') }} <span data-sim-progress>{{ report.progress.processed }}/{{ report.progress.total }}</span></span>
@@ -99,9 +105,18 @@
       {{ _('Skipped submissions are excluded from comparison (over the size limit or empty code). Short code is compared by default.') }}
     </div>
     {% endif %}
-    {% if not report.stats.l1 and not report.stats.l2 and not report.stats.l3 %}
+    {% if not report.stats.submissions %}
     <div class="supplementary sim-hint">
-      {{ _('No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.') }}
+      {% if report.stats.skippedEmpty %}
+      {{ _('Collected 0 readable submissions: every submission was skipped as EMPTY — the code storage could not be read. Check the storage service and rescan.') }}
+      {% else %}
+      {{ _('Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).') }}
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if report.stats.submissions and not report.stats.l1 and not report.stats.l2 and not report.stats.l3 %}
+    <div class="supplementary sim-hint">
+      {{ _('No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.') }}
     </div>
     {% endif %}
     <div class="sim-meta">
