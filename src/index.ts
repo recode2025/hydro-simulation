@@ -103,7 +103,9 @@ export default definePlugin({
             c.worker.addHandler('sim.scan', async (doc: any) => {
                 try {
                     const reportId: ObjectId = new ObjectId(doc.reportId);
-                    const runId = await claimReport(reportId);
+                    // fresh=false: automatic retry — keep the attempts counter
+                    // accumulating toward the give-up cap
+                    const runId = await claimReport(reportId, false);
                     if (!runId) {
                         // claim failed: find out why instead of dying silently
                         const cur = await collReport.findOne(

@@ -36,7 +36,7 @@
       <p class="supplementary">{{ _('A previous attempt was interrupted; the scan will restart from the beginning.') }}</p>
       {% endif %}
       {% if report.lastError %}
-      <p class="supplementary sim-cell--err">{{ _('Retrying after error') }}{% if report.attempts %} (#{{ report.attempts + 1 }}){% endif %}: <code>{{ report.lastError }}</code></p>
+      <p class="supplementary sim-cell--err">{{ _('Retrying after error') }}{% if report.attempts %} (#{{ report.attempts }}){% endif %}: <code>{{ report.lastError }}</code></p>
       {% endif %}
       <form method="post" class="sim-inline-form">
         <input type="hidden" name="operation" value="runNow">

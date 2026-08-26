@@ -52,7 +52,9 @@ export interface ReportDoc {
     /** last transient error that requeued the run — the reason a waiting
      *  report keeps waiting (cleared on successful finish). */
     lastError?: string;
-    /** transient-retry count for the current execution series (reset on claim). */
+    /** cumulative transient-db retries. Reset by MANUAL starts (claim with
+     *  fresh=true) — NOT by automatic task retries, so the give-up cap in
+     *  runDetection is actually reachable. */
     attempts?: number;
 }
 
@@ -228,13 +230,22 @@ function ownedFilter(reportId: ObjectId, runId?: ObjectId) {
 }
 
 /** Atomically claim a waiting report for execution, stamping it with a fresh
- *  run token (and a fresh transient-retry budget). Returns the token, or
- *  null when the race was lost (already claimed / done / gone). */
-export async function claimReport(reportId: ObjectId) {
+ *  run token. `fresh` (manual starts) also resets the transient-retry budget;
+ *  AUTOMATIC task retries claim with fresh=false so attempts ACCUMULATE —
+ *  resetting on every claim made the counter oscillate 0↔1 forever, the
+ *  give-up cap in runDetection was unreachable, and a report retried for as
+ *  long as mongo stayed down. Returns the token, or null when the race was
+ *  lost (already claimed / done / gone). */
+export async function claimReport(reportId: ObjectId, fresh = true) {
     const runId = new ObjectId();
     const ok = await collReport.updateOne(
         { _id: reportId, status: 'waiting' },
-        { $set: { status: 'running', lockedAt: new Date(), startedAt: new Date(), runId, attempts: 0 } },
+        {
+            $set: {
+                status: 'running', lockedAt: new Date(), startedAt: new Date(), runId,
+                ...(fresh ? { attempts: 0 } : {}),
+            },
+        },
     ).then((r) => r.modifiedCount === 1);
     return ok ? runId : null;
 }
