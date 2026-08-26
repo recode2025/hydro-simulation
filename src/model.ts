@@ -133,8 +133,21 @@ export interface FingerprintDoc {
 // service starts — and addons get imported before that. Resolving the
 // collections lazily (on first method call, always long after startup) keeps
 // the plugin loadable regardless of service order.
+// Methods are BOUND to the real collection: the driver invokes them with
+// `this` = whatever object they were called on, and its topology lookup uses
+// `'topology' in provider` / `'client' in provider` — an `in` check consults
+// the proxy's EMPTY target object, never this get trap. An unbound method
+// therefore made insertMany throw MongoNotConnectedError 100% of the time
+// (bulk ops check the topology synchronously at construction) while every
+// plain CRUD op kept working — masquerading as a flaky mongo connection for
+// the entire life of the proxy. Binding restores the real collection as
+// `this` while keeping the lazy, always-current resolution.
 const lazyColl = <T>(name: string): Collection<T> => new Proxy({} as Collection<T>, {
-    get: (_, prop) => (db as any).collection(name)[prop],
+    get: (_, prop) => {
+        const coll = (db as any).collection(name);
+        const value = coll[prop];
+        return typeof value === 'function' ? value.bind(coll) : value;
+    },
 });
 const collReport = lazyColl<ReportDoc>('sim.report');
 const collPair = lazyColl<PairDoc>('sim.pair');
