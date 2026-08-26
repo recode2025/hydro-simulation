@@ -62,7 +62,11 @@ export default definePlugin({
     async apply(ctx: Context) {
         ctx.setting.SystemSetting(...SETTINGS);
 
-        await ensureIndexes(ctx);
+        // wait for the mongo service before touching collections (addons may
+        // be imported before db is up)
+        await ctx.inject(['db'], async (c: Context) => {
+            await ensureIndexes(c);
+        });
 
         ctx.Route('domain_sim_list', '/domain/sim', SimListHandler, PERM.PERM_EDIT_DOMAIN);
         ctx.Route('domain_sim_detail', '/domain/sim/:tid', SimDetailHandler, PERM.PERM_EDIT_DOMAIN);

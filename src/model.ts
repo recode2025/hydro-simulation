@@ -69,9 +69,16 @@ export interface FingerprintDoc {
     hashes: Buffer;
 }
 
-const collReport = db.collection('sim.report' as any) as unknown as Collection<ReportDoc>;
-const collPair = db.collection('sim.pair' as any) as unknown as Collection<PairDoc>;
-const collFp = db.collection('sim.fingerprint' as any) as unknown as Collection<FingerprintDoc>;
+// The `db` export proxies to app.get('db'), which is undefined until the mongo
+// service starts — and addons get imported before that. Resolving the
+// collections lazily (on first method call, always long after startup) keeps
+// the plugin loadable regardless of service order.
+const lazyColl = <T>(name: string): Collection<T> => new Proxy({} as Collection<T>, {
+    get: (_, prop) => (db as any).collection(name)[prop],
+});
+const collReport = lazyColl<ReportDoc>('sim.report');
+const collPair = lazyColl<PairDoc>('sim.pair');
+const collFp = lazyColl<FingerprintDoc>('sim.fingerprint');
 
 export { collPair, collFp, collReport };
 
