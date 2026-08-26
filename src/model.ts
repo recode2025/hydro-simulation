@@ -158,6 +158,9 @@ export function isTransientDbError(e: unknown): boolean {
  *  the very error that lands here have been observed to succeed instantly);
  *  retrying in place keeps a nearly-finished scan from being requeued and
  *  recomputed from scratch (the "progress bar hit 100% then reset" bug).
+ *  Backoff is exponential (delay * 2^attempt, capped at 8s) so 5 tries cover
+ *  a ~22s outage — observed outages ran ~4s (client being rebuilt), longer
+ *  than the old flat 2s×3 window.
  *  A `false` return (lost ownership race) is NOT retried: it is a legitimate
  *  answer, not an error. `onRetry` runs between attempts (insertPairs uses it
  *  to wipe a partially-written flush so the retry stays idempotent). */
@@ -172,7 +175,7 @@ async function withTransientRetry<T>(
             return await fn();
         } catch (e) {
             if (i >= tries - 1 || !isTransientDbError(e)) throw e;
-            await new Promise((r) => setTimeout(r, delayMs));
+            await new Promise((r) => setTimeout(r, Math.min(delayMs * 2 ** i, 8000)));
             if (onRetry) await onRetry();
         }
     }
@@ -325,7 +328,11 @@ export function finishReport(reportId: ObjectId, stats: ReportDoc['stats'], runI
     return withTransientRetry(() => collReport.updateOne(
         ownedFilter(reportId, runId),
         { $set: { status: 'done', stats, finishedAt: new Date() }, $unset: { lastError: '' } },
-    ).then((r) => r.modifiedCount === 1));
+    ).then((r) => r.modifiedCount === 1), {
+        // same budget as insertPairs: this is the last write of a finished run —
+        // failing it requeues and recomputes everything
+        tries: 5,
+    });
 }
 
 export function upsertFingerprint(fp: Omit<FingerprintDoc, '_id'>) {
@@ -372,6 +379,10 @@ export function insertPairs(docs: Omit<PairDoc, '_id'>[]) {
             if (chunk.length) await collPair.insertMany(chunk, { ordered: false });
         }
     }, {
+        // 5 tries with exponential backoff (~22s window): the pair flush is
+        // the LAST step of a finished run — losing it to a mid-restart mongo
+        // wastes the entire compute
+        tries: 5,
         // wipe this flush's partial writes so the retry cannot duplicate;
         // best effort — a rerun's contest-wide wipe cleans up regardless
         onRetry: () => {
