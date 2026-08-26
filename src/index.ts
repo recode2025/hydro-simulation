@@ -62,11 +62,10 @@ export default definePlugin({
     async apply(ctx: Context) {
         ctx.setting.SystemSetting(...SETTINGS);
 
-        // wait for the mongo service before touching collections (addons may
-        // be imported before db is up)
-        await ctx.inject(['db'], async (c: Context) => {
-            await ensureIndexes(c);
-        });
+        // NOTE: apply() performs NO database operations. Depending on cordis
+        // service timing the mongo client may not be connected yet when addons
+        // load, and a query here aborts the whole plugin. All db work
+        // (indexes, sweep bootstrap) is deferred to 'app/started'.
 
         ctx.Route('domain_sim_list', '/domain/sim', SimListHandler, PERM.PERM_EDIT_DOMAIN);
         ctx.Route('domain_sim_detail', '/domain/sim/:tid', SimDetailHandler, PERM.PERM_EDIT_DOMAIN);
@@ -161,13 +160,17 @@ export default definePlugin({
                         domainId: d._id, docType: 30, ...ruleQuery,
                         endAt: { $lt: new Date(now - graceMs), $gt: windowStart },
                     }, { projection: { docId: 1, title: 1, rule: 1, beginAt: 1, endAt: 1 } }).limit(50).toArray();
+                    if (!tdocs.length) continue;
+                    // one batched query per domain instead of a findOne per contest
+                    const existing = await collReport.find(
+                        { domainId: d._id, tid: { $in: tdocs.map((t) => t.docId) } },
+                        { projection: { tid: 1, status: 1 } },
+                    ).toArray();
+                    const seen = new Map(existing.map((r) => [String(r.tid), r.status]));
                     for (const tdoc of tdocs) {
                         if (budget <= 0) break outer;
-                        const latest = await collReport.findOne(
-                            { domainId: d._id, tid: tdoc.docId },
-                            { sort: { createdAt: -1 } },
-                        );
-                        if (latest && latest.status !== 'failed') continue;
+                        const st = seen.get(String(tdoc.docId));
+                        if (st && st !== 'failed') continue;
                         const reportId = await createReport({
                             domainId: d._id, tid: tdoc.docId,
                             title: tdoc.title, rule: tdoc.rule || 'acm',
@@ -205,13 +208,24 @@ export default definePlugin({
             deleteDomainData(domainId).catch(() => { });
         });
 
-        // bootstrap the hourly sweep on the primary instance only
-        if (process.env.NODE_APP_INSTANCE !== '0') return;
-        if (!await ScheduleModel.count({ type: 'schedule', subType: 'sim.sweep' })) {
-            await ScheduleModel.add({
-                type: 'schedule', subType: 'sim.sweep',
-                interval: [1, 'hour'],
-            });
-        }
+        // Deferred init: indexes + the hourly sweep bootstrap. 'app/started'
+        // fires at the very end of boot (after every service is up), so mongo
+        // is guaranteed connected here. Try/catch keeps a failure from
+        // taking the whole app down — the plugin degrades to manual scans.
+        ctx.on('app/started', async () => {
+            try {
+                await ensureIndexes(ctx);
+                if (process.env.NODE_APP_INSTANCE !== '0') return;
+                if (!await ScheduleModel.count({ type: 'schedule', subType: 'sim.sweep' })) {
+                    await ScheduleModel.add({
+                        type: 'schedule', subType: 'sim.sweep',
+                        interval: [1, 'hour'],
+                    });
+                }
+            } catch (e) {
+                ctx.logger.error('sim deferred init failed');
+                ctx.logger.error(e);
+            }
+        });
     },
 });

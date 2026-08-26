@@ -115,6 +115,10 @@ export async function fetchCode(rdoc: any): Promise<string> {
 
 const yieldLoop = () => new Promise<void>((r) => setImmediate(r));
 
+/** Safety valve: pathological cases (hundreds of users sharing one template)
+ *  would otherwise emit O(n^2) pairs for a single problem. */
+const MAX_PAIRS_PER_REPORT = 50_000;
+
 interface FpGroup {
     codeHash: string;
     fps: Uint32Array;
@@ -138,6 +142,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         thresholds: report.config.thresholds,
     };
     const stats = { users: 0, submissions: 0, skipped: 0, pairs: 0, l1: 0, l2: 0, l3: 0 };
+    let pairCapLogged = false;
     const uids = new Set<number>();
     try {
         const { domainId, tid } = report;
@@ -205,20 +210,13 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                         continue;
                     }
                     ch = codeHash(tokenText(tokens));
-                    const existing = groups.get(ch);
-                    if (existing) {
-                        // identical normalized source already fingerprinted
-                        if (!existing.members.has(rdoc.uid)) {
-                            existing.members.set(rdoc.uid, { rid: rdoc._id, lang: rdoc.lang });
-                        }
-                        stats.submissions++;
-                        uids.add(rdoc.uid);
-                        continue;
-                    }
                     const base = new Array<number>(tokens.length);
                     for (let t = 0; t < tokens.length; t++) base[t] = fnv32a(tokens[t].v);
                     fps = dedupSorted(kgramHashes(base, cfg.k));
                     tokenCount = tokens.length;
+                    // always cache: even when an identical normalized source was
+                    // already grouped in this run, persisting lets the NEXT run
+                    // skip fetch+tokenize for this rid entirely
                     await upsertFingerprint({
                         rid: rdoc._id, domainId, codeHash: ch, lang: rdoc.lang,
                         k: cfg.k, tokenCount, hashes: pack(fps),
@@ -262,6 +260,16 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                         for (const [uid2, m2] of g2.members) {
                             if (uid1 === uid2) continue;
                             if (i === j && uid1 > uid2) continue; // same group: emit once
+                            if (stats.pairs >= MAX_PAIRS_PER_REPORT) {
+                                if (!pairCapLogged) {
+                                    pairCapLogged = true;
+                                    ctx.logger.warn(
+                                        'sim.scan %s: pair cap %d reached, remaining pairs for this report are dropped',
+                                        tid.toHexString(), MAX_PAIRS_PER_REPORT,
+                                    );
+                                }
+                                continue;
+                            }
                             const a = uid1 < uid2 ? uid1 : uid2;
                             const b = uid1 < uid2 ? uid2 : uid1;
                             const ra = uid1 < uid2 ? m1 : m2;

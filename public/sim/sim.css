@@ -34,6 +34,15 @@
 
 .sim-stats dt { min-width: 140px; }
 
+/* horizontal scroll: wide tables scroll inside the section instead of
+   overflowing the panel on narrow screens */
+.sim-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.sim-scroll .sim-table { min-width: 760px; }
+
 /* ---- side-by-side diff ---- */
 
 .sim-diff-wrap {
@@ -45,18 +54,20 @@
 
 table.sim-diff {
     width: 100%;
+    min-width: max-content;
     border-collapse: collapse;
     font-family: var(--code-font-family, monospace);
     font-size: 12px;
     line-height: 1.45;
-    table-layout: fixed;
+    table-layout: auto;
 }
 
 .sim-diff td {
     padding: 0 6px;
     vertical-align: top;
-    word-break: break-all;
-    white-space: pre-wrap;
+    /* no wrapping: long code lines extend the table and the wrap div
+       scrolls horizontally (line numbers stay aligned on both sides) */
+    white-space: pre;
 }
 
 .sim-diff__ln {

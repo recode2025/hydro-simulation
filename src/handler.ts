@@ -240,7 +240,12 @@ export class SimGraphApiHandler extends SimBaseHandler {
     @param('level', Types.Range(['1', '2', '3']), true)
     async get(domainId: string, tid: ObjectId, level = '1') {
         const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-        const pairs = await collPair.find({ domainId, tid }).sort({ similarity: -1 }).limit(20000).toArray();
+        // projection keeps the payload lean: buildGraph only needs the fields
+        // below (not rids / langs / codeHashes)
+        const pairs = await collPair.find(
+            { domainId, tid },
+            { projection: { pid: 1, uid1: 1, uid2: 1, similarity: 1, level: 1 } },
+        ).sort({ similarity: -1 }).limit(20000).toArray();
         const uids = Array.from(new Set(pairs.flatMap((p) => [p.uid1, p.uid2])));
         const pids = Array.from(new Set(pairs.map((p) => p.pid)));
         const [udict, pdict] = await Promise.all([

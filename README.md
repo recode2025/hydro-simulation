@@ -4,7 +4,7 @@ Hydro OJ 用户代码查重插件：比赛/作业**结束后**对参赛者代码
 
 - 相似度分级：**完全相同 ≥ 0.95 / 高度 ≥ 0.75 / 疑似 ≥ 0.55 / 无**（阈值可在面板与系统设置中调节，从宽起报、人工复核）
 - 防误判：去注释/去 `#include`/`import`/`uses` 等模板行、字符串/字符/数字/标识符归一化、空白不敏感、Pascal 大小写不敏感、过短代码（< 40 token）跳过、**只在同题提交间比对**、归一化后同哈希直接判"完全相同"
-- 性能：按 rid 缓存 k-gram 指纹（`sim.fingerprint`，命中则完全跳过读码）、同源代码折叠分组后按组比对、事件循环定期让出、批量落库
+- 性能：按 rid 缓存 k-gram 指纹（`sim.fingerprint`，命中则完全跳过读码）、同源代码折叠分组后按组比对、事件循环定期让出、批量落库、图接口投影裁剪、每报告 5 万对封顶（防病态平方级膨胀）、兜底扫描按域批量查询
 - 非实时：赛后定时触发（`endAt + grace`）+ 每小时兜底扫描 + 面板手动触发，绝不占用评测算力；worker 侧 CAS 占位后 `setImmediate` 异步执行，不阻塞 judge 派发
 
 ## 安装
@@ -18,6 +18,7 @@ hydrooj serve
 依赖：hydrooj ≥ 5（mongodb 7.x 由其间接提供）。安装后重启即生效：
 
 - 域管理后台侧边栏出现 **Sim Detection / 代码查重**（需要 `PERM_EDIT_DOMAIN`，即域管理员）
+- 比赛管理页（`/contest/<tid>/management` 等）侧边栏出现 **代码查重** 入口，直达该场比赛报告
 - 每个比赛/作业的报告也可直接经 `/d/<domainId>/contest/<tid>/sim` 按比赛进入
 
 ## 使用
@@ -92,5 +93,6 @@ yarn test        # node --test（tokenizer / fingerprint / dice / lcs 纯模块�
 ## 兼容性说明
 
 - 全部 API 仅使用 hydrooj ≥ 5 plugin-api 导出；模板仅依赖 ui-default 公共布局（`domain_base.html` / `layout/basic.html`）与既有全局（`paginator`/`datetimeSpan`/`url`/`user.render_inline`）
-- 比赛管理页侧栏为 ui-default 静态模板（无官方注入点），故按比赛进入使用 `/contest/:tid/sim` 路由别名与面板行内入口；如需在原生侧栏加入口，可自行 override `partials/contest_sidebar_management.html`（本插件刻意不做全局模板覆盖以保证升级兼容）
+- 比赛管理页侧栏为 ui-default 静态模板（无官方 `injectUI` 注入点），本插件通过提供同名模板 `templates/partials/contest_sidebar_management.html` 覆盖它来加入 **代码查重** 入口（该文件是 ui-default 4.58.x 原版的逐字拷贝 + 一个带权限判断的菜单项；若上游日后改动该侧栏，请同步刷新此拷贝，否则会遮蔽上游变更）
 - PM2 多实例：事件监听全实例注册，定时兜底仅实例 `NODE_APP_INSTANCE=0` 引导
+- 插件 `apply()` 不做任何数据库操作（索引创建与兜底任务引导推迟到 `app/started`），避免 addon 加载早于 mongo 连接完成时抛 `MongoNotConnectedError`

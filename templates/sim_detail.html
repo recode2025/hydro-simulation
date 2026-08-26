@@ -88,6 +88,7 @@
   {% if not pairs.length %}
     {{ nothing.render('No similar pair found...') }}
   {% else %}
+   <div class="sim-scroll">
     <table class="data-table sim-table">
       <thead>
         <tr>
@@ -124,6 +125,7 @@
       {%- endfor -%}
       </tbody>
     </table>
+   </div>
     {{ paginator.render(page, tpcount, add_qs=qs) }}
   {% endif %}
   </div>

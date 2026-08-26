@@ -19,6 +19,7 @@
   {% if not tdocs.length %}
     {{ nothing.render('No contest or homework yet...') }}
   {% else %}
+   <div class="sim-scroll">
     <table class="data-table sim-table">
       <thead>
         <tr>
@@ -90,6 +91,7 @@
       {%- endfor -%}
       </tbody>
     </table>
+   </div>
     {{ paginator.render(page, tpcount, add_qs=qs) }}
   {% endif %}
   </div>
