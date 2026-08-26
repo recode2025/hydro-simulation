@@ -18,5 +18,5 @@
       "hydrooj": ["./node_modules/hydrooj/src/plugin-api"]
     }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["index.ts", "src/**/*.ts", "test/**/*.ts"]
 }

@@ -2,7 +2,7 @@
   "name": "hydrooj-similarity",
   "version": "1.0.0",
   "description": "Hydro plugin: post-contest code similarity detection (Sorensen-Dice) with plagiarism network graph",
-  "main": "src/index.ts",
+  "main": "index.ts",
   "license": "MIT",
   "scripts": {
     "test": "node --test --experimental-strip-types test/",
