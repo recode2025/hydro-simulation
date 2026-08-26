@@ -33,7 +33,7 @@
       <div class="sim-progress" data-sim-status-url="{{ urlStatus }}">
         <span class="sim-badge sim-badge--running">{{ _('Running') }} <span data-sim-progress>{{ report.progress.processed }}/{{ report.progress.total }}</span></span>
         <div class="sim-progressbar">
-          <div class="sim-progressbar__fill" data-sim-bar style="width: {{ report.progress.total ? (report.progress.processed / report.progress.total * 100)|round(1) : 0 }}%"></div>
+          <div class="sim-progressbar__fill" data-sim-bar style="width: {{ ((report.progress.processed / report.progress.total * 100)|round(1)) if report.progress.total else 0 }}%"></div>
         </div>
         <span class="supplementary">{{ _('Scan is in progress; refresh this page later.') }}</span>
       </div>
