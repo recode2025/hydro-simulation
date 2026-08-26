@@ -17,9 +17,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Hydro 本地联调时生成的运行时文件（.addons.yaml / .hydro / 上传与存储目录）
-.addons.yaml
-.hydro/
+# Hydro 本地联调时生成的运行时文件（setup 会往 cwd 写 config.json）
+config.json
 files/
 storage/
 
