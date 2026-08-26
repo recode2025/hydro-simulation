@@ -241,6 +241,18 @@ export class SimListHandler extends SimBaseHandler {
         }
         this.response.redirect = this.url('domain_sim_list');
     }
+
+    /** Delete a contest's sim data from the LIST page (the table's Delete
+     *  button posts here). Same tombstone semantics as the detail page's
+     *  postDelete — this method used to be missing entirely, so the button
+     *  died with MethodNotAllowedError. */
+    @requireSudo
+    @param('tid', Types.ObjectId)
+    async postDelete(domainId: string, tid: ObjectId) {
+        await deleteContestTasks(domainId, tid);
+        await cancelContestData(domainId, tid);
+        this.response.redirect = this.url('domain_sim_list');
+    }
 }
 
 export class SimDetailHandler extends SimBaseHandler {
