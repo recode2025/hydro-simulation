@@ -141,3 +141,74 @@ test('plain family still tokenizes structurally', () => {
     assert.ok(out.includes('V'));
     assert.ok(out.includes('N'));
 });
+
+// ---- collectors (evidence side-channel) ----
+
+test('collectors: ident fires for non-keywords with correct token index', () => {
+    const idents: [string, number][] = [];
+    const tokens = tokenize('int foo = bar + 1;', 'c', {
+        ident: (w, i) => idents.push([w, i]),
+    });
+    const names = idents.map(([w]) => w);
+    assert.deepEqual(names, ['foo', 'bar']);
+    // the reported index must be where the V token actually landed
+    for (const [w, i] of idents) {
+        assert.equal(tokens[i].k, 'ph');
+        assert.equal(tokens[i].v, 'V');
+        void w;
+    }
+});
+
+test('collectors: keywords are NOT reported as idents', () => {
+    const idents: string[] = [];
+    tokenize('int main() { return 0; }', 'c', { ident: (w) => idents.push(w) });
+    assert.deepEqual(idents, ['main']); // int/return are keywords
+});
+
+test('collectors: comments captured for c, python and pascal', () => {
+    const c: string[] = [];
+    tokenize('int a; // line note\n/* block note */', 'c', { comment: (r) => c.push(r) });
+    assert.equal(c.length, 2);
+    assert.ok(c[0].includes('line note'));
+    assert.ok(c[1].includes('block note'));
+
+    const p: string[] = [];
+    tokenize('x = 1  # py note\ndef f():\n    pass', 'python', { comment: (r) => p.push(r) });
+    assert.equal(p.length, 1);
+    assert.ok(p[0].includes('py note'));
+
+    const s: string[] = [];
+    tokenize('begin { pascal note } end.', 'pascal', { comment: (r) => s.push(r) });
+    assert.equal(s.length, 1);
+    assert.ok(s[0].includes('pascal note'));
+});
+
+test('collectors: token stream is IDENTICAL with and without collectors', () => {
+    const code = `
+#include <cstdio>
+// a comment
+int main() {
+    /* block */
+    int count = 0;
+    for (int i = 0; i < 10; i++) count += i;
+    printf("%d", count);
+}`;
+    const idents: string[] = [];
+    const comments: string[] = [];
+    const plain = tokenize(code, 'c');
+    const hooked = tokenize(code, 'c', {
+        ident: (w) => idents.push(w),
+        comment: (raw) => comments.push(raw),
+    });
+    assert.equal(tokenText(plain), tokenText(hooked));
+    assert.deepEqual(plain, hooked);
+    // collectors actually fired
+    assert.ok(idents.includes('count'));
+    assert.ok(comments.length >= 2);
+});
+
+test('collectors: pascal idents are lowercased (set-friendly)', () => {
+    const idents: string[] = [];
+    tokenize('Var Count: Integer;', 'pascal', { ident: (w) => idents.push(w) });
+    assert.deepEqual(idents, ['count']);
+});

@@ -1,6 +1,6 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=2">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=3">
 <div class="section">
   <div class="section__header">
     <div>
@@ -96,7 +96,7 @@
     </div>
     {% if report.stats.skipped %}
     <div class="supplementary sim-hint">
-      {{ _('Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.') }}
+      {{ _('Skipped submissions are excluded from comparison (over the size limit or empty code). Short code is compared by default.') }}
     </div>
     {% endif %}
     {% if not report.stats.l1 and not report.stats.l2 and not report.stats.l3 %}
@@ -116,6 +116,70 @@
   </div>
 </div>
 
+{% if userSummary and report and report.status == 'done' %}
+<div class="section">
+  <div class="section__header">
+    <h1 class="section__title">{{ _('User Summary') }}{% if filterUdoc and udict[filterUdoc._id] %} — {{ user.render_inline(udict[filterUdoc._id]) }}{% endif %}</h1>
+  </div>
+  <div class="section__body">
+    <div class="sim-statcards">
+      <div class="sim-statcard sim-statcard--3">
+        <div class="sim-statcard__num">{{ userSummary.l3 }}</div>
+        <div class="sim-statcard__label">{{ _('Identical') }}</div>
+      </div>
+      <div class="sim-statcard sim-statcard--2">
+        <div class="sim-statcard__num">{{ userSummary.l2 }}</div>
+        <div class="sim-statcard__label">{{ _('High') }}</div>
+      </div>
+      <div class="sim-statcard sim-statcard--1">
+        <div class="sim-statcard__num">{{ userSummary.l1 }}</div>
+        <div class="sim-statcard__label">{{ _('Suspected') }}</div>
+      </div>
+      <div class="sim-statcard">
+        <div class="sim-statcard__num">{{ userSummary.total }}</div>
+        <div class="sim-statcard__label">{{ _('Similar pairs') }}</div>
+      </div>
+      <div class="sim-statcard">
+        <div class="sim-statcard__num">{{ (userSummary.maxSim * 100)|round(1) }}%</div>
+        <div class="sim-statcard__label">{{ _('Max similarity') }}</div>
+      </div>
+      <div class="sim-statcard{% if userSummary.sharedCommentPairs %} sim-statcard--muted{% endif %}">
+        <div class="sim-statcard__num">{{ userSummary.sharedCommentPairs }}</div>
+        <div class="sim-statcard__label">{{ _('Pairs with shared comments') }}</div>
+      </div>
+    </div>
+    {% if userSummary.flags.length %}
+    <div class="sim-flaglist">
+      <span class="supplementary">{{ _('Flags detected') }}:</span>
+      {% for f in userSummary.flags %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    {% if userSummary.perProblem.length %}
+    <table class="data-table sim-table">
+      <thead>
+        <tr>
+          <th>{{ _('Problem') }}</th>
+          <th>{{ _('Similar pairs') }}</th>
+          <th>{{ _('Max similarity') }}</th>
+          <th>{{ _('Partners') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {%- for pp in userSummary.perProblem -%}
+        <tr>
+          <td>#{{ pp.pid }} {{ pdict[pp.pid].title|default('') }}</td>
+          <td>{{ pp.count }}</td>
+          <td>{{ (pp.maxSim * 100)|round(2) }}%</td>
+          <td>{{ pp.partners }}</td>
+        </tr>
+      {%- endfor -%}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if report and report.status == 'done' %}
 <div class="section">
   <div class="section__header">
@@ -133,11 +197,15 @@
             <option value="{{ p }}"{% if pid == p %} selected{% endif %}>#{{ p }} {{ pdict[p].title|default('') }}</option>
           {%- endfor -%}
         </select>
+        <input type="text" class="inline compact textbox" name="user" value="{{ user }}" placeholder="{{ _('Filter by user (name or ID)') }}">
         <button type="submit" class="button hasjs--hide">{{ _('Filter') }}</button>
       </form>
     </div>
   </div>
   <div class="section__body no-padding">
+  {% if user and not filterUdoc %}
+    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain: {0}')|format(user) }}</p>
+  {% endif %}
   {% if not pairs.length %}
     {{ nothing.render('No similar pair found...') }}
   {% else %}
@@ -146,7 +214,13 @@
       <thead>
         <tr>
           <th>{{ _('Level') }}</th>
-          <th>{{ _('Similarity') }}</th>
+          <th title="{{ _('Sørensen–Dice over k-gram fingerprints — decides the level') }}">{{ _('Similarity') }}</th>
+          <th title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</th>
+          <th title="{{ _('TF-IDF similarity') }}">TF-IDF</th>
+          <th title="{{ _('Variable name similarity') }}">{{ _('Var') }}</th>
+          <th title="{{ _('Function similarity') }}">{{ _('Func') }}</th>
+          <th title="{{ _('Structure similarity') }}">{{ _('Struct') }}</th>
+          <th title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }}</th>
           <th>{{ _('User') }} 1</th>
           <th>{{ _('User') }} 2</th>
           <th>{{ _('Problem') }}</th>
@@ -155,7 +229,8 @@
         </tr>
       </thead>
       <tbody>
-      {%- for pair in pairs -%}
+      {%- for row in pairs -%}
+        {% set pair = row.pair %}
         <tr class="sim-row--{{ pair.level }}">
           <td>
             {% if pair.level == 3 %}<span class="sim-badge sim-badge--3">{{ _('Identical') }}</span>
@@ -163,13 +238,21 @@
             {% else %}<span class="sim-badge sim-badge--1">{{ _('Suspected') }}</span>{% endif %}
           </td>
           <td class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</td>
+          <td class="sim-m sim-m--{{ row.seqH }}">{{ row.seqD if row.seqD != null else '—' }}</td>
+          <td class="sim-m sim-m--{{ row.tfidfH }}">{{ row.tfidfD if row.tfidfD != null else '—' }}</td>
+          <td class="sim-m sim-m--{{ row.varH }}">{{ row.varD if row.varD != null else '—' }}</td>
+          <td class="sim-m sim-m--{{ row.funcH }}">{{ row.funcD if row.funcD != null else '—' }}</td>
+          <td class="sim-m sim-m--{{ row.structH }}">{{ row.structD if row.structD != null else '—' }}</td>
+          <td class="sim-m{% if pair.sharedComments %} sim-m--high{% endif %}">{{ pair.sharedComments if pair.sharedComments != null else '—' }}</td>
           <td>
             {% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}
             <a class="supplementary" href="{{ urlRecord(pair.rid1) }}">#{{ pair.rid1.toString().slice(-6) }}</a>
+            {%- if pair.flags1 %}<div class="sim-flags">{% for f in pair.flags1 %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}</div>{% endif -%}
           </td>
           <td>
             {% if udict[pair.uid2] %}{{ user.render_inline(udict[pair.uid2]) }}{% else %}{{ pair.uid2 }}{% endif %}
             <a class="supplementary" href="{{ urlRecord(pair.rid2) }}">#{{ pair.rid2.toString().slice(-6) }}</a>
+            {%- if pair.flags2 %}<div class="sim-flags">{% for f in pair.flags2 %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}</div>{% endif -%}
           </td>
           <td>#{{ pair.pid }} {{ pdict[pair.pid].title|default('') }}</td>
           <td class="supplementary">{{ pair.lang1 }}{% if pair.lang2 != pair.lang1 %} / {{ pair.lang2 }}{% endif %}</td>

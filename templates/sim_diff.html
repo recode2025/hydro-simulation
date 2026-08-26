@@ -1,6 +1,6 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=2">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=3">
 <div class="section">
   <div class="section__header">
     <h1 class="section__title" data-heading>{{ _('Code Diff') }} — #{{ pair.pid }} {{ pdict[pair.pid].title|default('') if pdict else '' }}</h1>
@@ -16,6 +16,24 @@
       <span class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</span>
       {{ _('Sørensen–Dice coefficient over normalized k-gram fingerprints') }}
     </p>
+    {% if pair.simSeq != null or pair.simTfidf != null or pair.simVar != null or pair.simFunc != null or pair.simStruct != null or pair.sharedComments != null %}
+    <p class="sim-evidence supplementary">
+      {{ _('Evidence metrics') }}:
+      <span title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }} <strong>{{ (pair.simSeq * 100)|round(1) if pair.simSeq != null else '—' }}%</strong></span>
+      <span title="{{ _('TF-IDF similarity') }}">TF-IDF <strong>{{ (pair.simTfidf * 100)|round(1) if pair.simTfidf != null else '—' }}%</strong></span>
+      <span title="{{ _('Variable name similarity') }}">{{ _('Var') }} <strong>{{ (pair.simVar * 100)|round(1) if pair.simVar != null else '—' }}%</strong></span>
+      <span title="{{ _('Function similarity') }}">{{ _('Func') }} <strong>{{ (pair.simFunc * 100)|round(1) if pair.simFunc != null else '—' }}%</strong></span>
+      <span title="{{ _('Structure similarity') }}">{{ _('Struct') }} <strong>{{ (pair.simStruct * 100)|round(1) if pair.simStruct != null else '—' }}%</strong></span>
+      <span title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }} <strong>{{ pair.sharedComments if pair.sharedComments != null else '—' }}</strong></span>
+      {%- if pair.flags1 or pair.flags2 %}
+      <span class="sim-flaglist">
+        {{ _('Flags detected') }}:
+        {%- if pair.flags1 %}{% for f in pair.flags1 %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}{% endif -%}
+        {%- if pair.flags2 %}{% for f in pair.flags2 %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}{% endif -%}
+      </span>
+      {% endif -%}
+    </p>
+    {% endif %}
     <div class="row">
       <div class="medium-6 columns">
         {% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}

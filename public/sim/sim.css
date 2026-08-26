@@ -207,3 +207,50 @@ table.sim-diff {
 .sim-diff__code.sim-diff--ins { background: rgba(64, 208, 104, .16); }
 .sim-diff__code.sim-diff--del { background: rgba(240, 90, 60, .16); }
 .sim-diff__code.sim-diff--empty { background: rgba(128, 128, 128, .05); }
+
+/* ---- evidence metrics (v3) ---- */
+
+.sim-m {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.sim-m--na { color: rgba(128, 128, 128, .6); }
+.sim-m--low { color: inherit; }
+.sim-m--mid { color: #b07500; font-weight: 600; }
+.sim-m--high { color: #c01010; font-weight: 700; }
+
+.sim-flags {
+    margin-top: 2px;
+    line-height: 1.6;
+}
+.sim-flag {
+    display: inline-block;
+    margin: 0 4px 2px 0;
+    padding: 0 6px;
+    border: 1px solid rgba(192, 16, 16, .45);
+    border-radius: 3px;
+    background: rgba(192, 16, 16, .07);
+    color: #c01010;
+    font-family: var(--code-font-family, monospace);
+    font-size: 11px;
+    line-height: 18px;
+}
+.sim-flaglist {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    margin-left: 8px;
+}
+
+.sim-evidence span {
+    margin-right: 12px;
+    white-space: nowrap;
+}
+
+/* ---- user summary (v3) ---- */
+
+.sim-usersummary .sim-flaglist {
+    display: flex;
+    margin: 8px 0 0;
+}

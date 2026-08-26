@@ -49,7 +49,32 @@
 'Short': 过短
 'Large': 超大
 'Empty': 空代码
-'Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.': 被跳过的提交不参与比对（过短 / 超大 / 空代码）。要捕捉小段测试代码可在系统设置调低 sim.minTokens。
+'Skipped submissions are excluded from comparison (over the size limit or empty code). Short code is compared by default.': 被跳过的提交不参与比对（超出大小上限或空代码）。短代码默认参与比对。
+
+# evidence metrics
+'Seq': 序列
+'Var': 变量
+'Func': 函数
+'Struct': 结构
+'Sequence similarity (token LCS)': 序列相似度（token 最长公共子序列）
+'TF-IDF similarity': TF-IDF 相似度
+'Variable name similarity': 变量名相似度
+'Function similarity': 函数相似度
+'Structure similarity': 结构相似度
+'Identical comment lines on both sides': 双方完全相同的注释行数
+'Sørensen–Dice over k-gram fingerprints — decides the level': 基于 k-gram 指纹的 Sørensen–Dice——决定分级
+'Keyword flag (informational, not proof)': 关键字标记（仅供参考，不构成证据）
+'Evidence metrics': 证据指标
+'Shared comments': 共享注释
+'Flags detected': 检测到的关键字
+
+# user query
+'Filter by user (name or ID)': 按用户过滤（用户名或 ID）
+'No such user in this domain: {0}': 该域中不存在用户：{0}
+'User Summary': 用户汇总
+'Max similarity': 最高相似度
+'Partners': 涉及对方
+'Pairs with shared comments': 存在共享注释的对
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.': 未发现相似对。查重只在同题的不同用户之间比对；「每人最后一次」模式只取每人每题的最后一次提交——如需全量比对请用「所有提交」模式重新查重。
 'The scan is queued and will run soon.': 查重任务已排队，稍后自动执行。
 'Scan is in progress; refresh this page later.': 查重进行中，请稍后刷新本页。
@@ -99,8 +124,8 @@
 'sim.threshold.high': 高度相似阈值
 'sim.threshold.suspected': 疑似相似阈值
 'sim.kgram': k-gram 长度
-'sim.minTokens': 最小 token 数（过滤过短代码）
-'sim.maxCodeSize': 最大代码字节数
+'sim.minTokens': 最小 token 数（0 = 不过滤短代码）
+'sim.maxCodeSize': 最大代码字节数（保险丝）
 'sim.submissionMode': 默认提交取样模式
 'sim.scope': 自动扫描范围
 'sim.autoScan': 启用自动扫描

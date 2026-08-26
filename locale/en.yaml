@@ -46,7 +46,32 @@
 'Short': Short
 'Large': Large
 'Empty': Empty
-'Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.': Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.
+'Skipped submissions are excluded from comparison (over the size limit or empty code). Short code is compared by default.': Skipped submissions are excluded from comparison (over the size limit or empty code). Short code is compared by default.
+
+# evidence metrics
+'Seq': Seq
+'Var': Var
+'Func': Func
+'Struct': Struct
+'Sequence similarity (token LCS)': Sequence similarity (token LCS)
+'TF-IDF similarity': TF-IDF similarity
+'Variable name similarity': Variable name similarity
+'Function similarity': Function similarity
+'Structure similarity': Structure similarity
+'Identical comment lines on both sides': Identical comment lines on both sides
+'Sørensen–Dice over k-gram fingerprints — decides the level': Sørensen–Dice over k-gram fingerprints — decides the level
+'Keyword flag (informational, not proof)': Keyword flag (informational, not proof)
+'Evidence metrics': Evidence metrics
+'Shared comments': Shared comments
+'Flags detected': Flags detected
+
+# user query
+'Filter by user (name or ID)': Filter by user (name or ID)
+'No such user in this domain: {0}': 'No such user in this domain: {0}'
+'User Summary': User Summary
+'Max similarity': Max similarity
+'Partners': Partners
+'Pairs with shared comments': Pairs with shared comments
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.': No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.
 'The scan is queued and will run soon.': The scan is queued and will run soon.
 'Scan is in progress; refresh this page later.': Scan is in progress; refresh this page later.

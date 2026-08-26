@@ -16,6 +16,10 @@ import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
 import type { Collection } from 'mongodb';
 
+/** Fingerprint artifact schema version — gates cache reuse; defined in
+ *  lib/artifacts (pure module) and re-exported here as the import hub. */
+export { FP_SCHEMA } from './lib/artifacts';
+
 export interface ReportDoc {
     _id: ObjectId;
     domainId: string;
@@ -57,6 +61,28 @@ export interface PairDoc {
     level: 1 | 2 | 3;
     common: number;
     createdAt: Date;
+    // ---- evidence metrics (dice remains the only level gate) ----
+    /** token-level LCS similarity 2*LCS/(n+m); null = n/a (too large/empty) */
+    simSeq?: number | null;
+    /** cosine tf-idf similarity; null = n/a */
+    simTfidf?: number | null;
+    /** dice over distinctive identifier names; null = no distinctive names */
+    simVar?: number | null;
+    /** length-weighted function-body match; null = no funcs / cross-family */
+    simFunc?: number | null;
+    /** cosine over structure vectors; null = zero-norm */
+    simStruct?: number | null;
+    /** identical normalized comment lines on both sides (human signal) */
+    sharedComments?: number;
+    /** keyword flags (freopen/...) of uid1's / uid2's submission */
+    flags1?: string[];
+    flags2?: string[];
+}
+
+export interface FpFuncSig {
+    n: string;
+    l: number;
+    h: number;
 }
 
 export interface FingerprintDoc {
@@ -68,6 +94,23 @@ export interface FingerprintDoc {
     k: number;
     tokenCount: number;
     hashes: Buffer;
+    // ---- evidence artifacts (schema-gated; absent = pre-v2 doc) ----
+    schema?: number;
+    /** pack(fnv32a per token) for sequence similarity */
+    baseHashes?: Buffer;
+    /** token.v -> count for tf-idf */
+    tf?: Record<string, number>;
+    /** fixed-dim structure profile */
+    structVec?: number[];
+    /** function signatures {n= name, l= len, h= body hash} */
+    funcs?: FpFuncSig[];
+    /** sorted distinct identifier names (per-rid evidence) */
+    idents?: string[];
+    /** pack(sorted distinct normalized comment-line hashes) */
+    commentHashes?: Buffer;
+    commentCount?: number;
+    /** keyword flags found in raw source */
+    flags?: string[];
 }
 
 // The `db` export proxies to app.get('db'), which is undefined until the mongo
@@ -109,6 +152,9 @@ export async function ensureIndexes(ctx: Context) {
         { name: 'domainId_tid_level_similarity', key: { domainId: 1, tid: 1, level: -1, similarity: -1 } },
         { name: 'domainId_tid_pid_similarity', key: { domainId: 1, tid: 1, pid: 1, similarity: -1 } },
         { name: 'reportId', key: { reportId: 1 } },
+        // user filter query uses $or on uid1/uid2 — index union keeps it cheap
+        { name: 'domainId_tid_uid1', key: { domainId: 1, tid: 1, uid1: 1 } },
+        { name: 'domainId_tid_uid2', key: { domainId: 1, tid: 1, uid2: 1 } },
     );
 }
 

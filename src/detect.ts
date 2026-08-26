@@ -19,11 +19,19 @@ import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
 import { classify, diceCoeff } from './lib/dice';
 import type { Thresholds } from './lib/dice';
-import { codeHash, dedupSorted, fnv32a, kgramHashes, pack, unpack } from './lib/fingerprint';
-import { langFamily, tokenText, tokenize } from './lib/tokenizer';
+import { codeHash, dedupSorted, kgramHashes, pack, unpack } from './lib/fingerprint';
+import { langFamily, tokenText } from './lib/tokenizer';
+import {
+    artifactsToFpFields, buildArtifacts, groupArtFromFpDoc, ridArtFromFpDoc,
+} from './lib/artifacts';
+import type { GroupArt, RidArt } from './lib/artifacts';
+import {
+    funcSimilarity, round4, seqSimilarity, sharedCommentCount, structSimilarity,
+    tfidfSimilarity, varSimilarity,
+} from './lib/metrics';
 import type { PairDoc, ReportDoc } from './model';
 import {
-    collPair, collReport, failReport, finishReport, getFingerprintMap, heartbeat,
+    FP_SCHEMA, collPair, collReport, failReport, finishReport, getFingerprintMap, heartbeat,
     insertPairs, isTransientDbError, setProgress, upsertFingerprint,
 } from './model';
 import { casStatus } from './model';
@@ -49,8 +57,12 @@ const DEFAULTS = {
     'sim.threshold.high': 0.75,
     'sim.threshold.suspected': 0.55,
     'sim.kgram': 8,
-    'sim.minTokens': 30,
-    'sim.maxCodeSize': 131072,
+    // 0 = never skip short code: k=8 k-grams already give tiny snippets an
+    // effective floor (a stream shorter than k produces no fingerprints at
+    // all -> dice 0), so an explicit length gate only hides real evidence.
+    'sim.minTokens': 0,
+    // pure safety valve against pathological pastes (not a realism limit)
+    'sim.maxCodeSize': 1_048_576,
     'sim.submissionMode': 'latest',
     'sim.scope': 'both',
     'sim.autoScan': true,
@@ -127,6 +139,8 @@ interface FpGroup {
     codeHash: string;
     fps: Uint32Array;
     tokenCount: number;
+    /** group-invariant evidence artifacts (from the creating rid) */
+    art: GroupArt;
     /** uid -> representative rid (first seen) */
     members: Map<number, { rid: ObjectId; lang: string }>;
 }
@@ -206,17 +220,25 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             const rdocs = byPid.get(pid)!;
             const fpCache = await getFingerprintMap(rdocs.map((r) => r._id));
             const groups = new Map<string, FpGroup>();
+            // per-rid evidence artifacts (idents/comments/flags survive only
+            // per submission — same-group members may differ, and that
+            // difference IS the rename-evasion evidence)
+            const ridArt = new Map<string, RidArt>();
             let processed = 0;
             for (const rdoc of rdocs) {
                 const ridHex = rdoc._id.toHexString();
                 let ch: string;
                 let fps: Uint32Array;
                 let tokenCount: number;
+                let art: GroupArt | null = null;
+                let rart: RidArt | null = null;
                 const cached = fpCache.get(ridHex);
-                if (cached && cached.k === cfg.k) {
+                if (cached && cached.k === cfg.k && cached.schema === FP_SCHEMA) {
                     ch = cached.codeHash;
                     fps = unpack(cached.hashes);
                     tokenCount = cached.tokenCount;
+                    art = groupArtFromFpDoc(cached);
+                    rart = ridArtFromFpDoc(cached);
                 } else {
                     const code = await fetchCode(rdoc);
                     if (!code) {
@@ -229,28 +251,40 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                         stats.skipped++;
                         continue;
                     }
-                    const tokens = tokenize(code, langFamily(rdoc.lang));
+                    const family = langFamily(rdoc.lang);
+                    // one pass produces the token stream AND the evidence
+                    // artifacts (collectors side-channel)
+                    const da = buildArtifacts(code, family);
+                    const tokens = da.tokens;
                     if (tokens.length < cfg.minTokens) {
                         stats.skippedShort++;
                         stats.skipped++;
                         continue;
                     }
                     ch = codeHash(tokenText(tokens));
-                    const base = new Array<number>(tokens.length);
-                    for (let t = 0; t < tokens.length; t++) base[t] = fnv32a(tokens[t].v);
-                    fps = dedupSorted(kgramHashes(base, cfg.k));
+                    fps = dedupSorted(kgramHashes(da.baseHashes, cfg.k));
                     tokenCount = tokens.length;
+                    art = {
+                        baseHashes: da.baseHashes, tf: da.tf, structVec: da.structVec,
+                        funcs: da.funcs, family,
+                    };
+                    rart = {
+                        idents: da.idents, commentHashes: da.commentHashes,
+                        commentCount: da.commentCount, flags: da.flags,
+                    };
                     // always cache: even when an identical normalized source was
                     // already grouped in this run, persisting lets the NEXT run
                     // skip fetch+tokenize for this rid entirely
                     await upsertFingerprint({
                         rid: rdoc._id, domainId, codeHash: ch, lang: rdoc.lang,
                         k: cfg.k, tokenCount, hashes: pack(fps),
+                        ...artifactsToFpFields(da),
                     });
                 }
+                ridArt.set(ridHex, rart!);
                 let group = groups.get(ch);
                 if (!group) {
-                    group = { codeHash: ch, fps, tokenCount, members: new Map() };
+                    group = { codeHash: ch, fps, tokenCount, art: art!, members: new Map() };
                     groups.set(ch, group);
                 }
                 if (!group.members.has(rdoc.uid)) group.members.set(rdoc.uid, { rid: rdoc._id, lang: rdoc.lang });
@@ -264,6 +298,13 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             }
 
             // ---- pairwise dice via group pairs ----
+            // tf-idf document frequency over DISTINCT normalized sources
+            // (groups), so duplicated submissions cannot inflate df
+            const df = new Map<string, number>();
+            for (const g of groups.values()) {
+                for (const term of g.art.tf.keys()) df.set(term, (df.get(term) ?? 0) + 1);
+            }
+            const nDocs = groups.size;
             const list = Array.from(groups.values());
             for (let i = 0; i < list.length; i++) {
                 for (let j = i; j < list.length; j++) {
@@ -282,6 +323,29 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                     }
                     const level = classify(sim, cfg.thresholds) as 1 | 2 | 3;
                     if (level < 1) continue;
+                    // ---- evidence metrics (group pair, computed once) ----
+                    let mSeq: number | null = null;
+                    let mTf: number | null = null;
+                    let mSt: number | null = null;
+                    let mFu: number | null = null;
+                    if (stats.pairs < MAX_PAIRS_PER_REPORT) {
+                        if (i === j || g1.codeHash === g2.codeHash) {
+                            // identical normalized streams: every derived
+                            // metric is 1 by construction (skip the work)
+                            mSeq = 1;
+                            mTf = 1;
+                            mSt = 1;
+                            mFu = 1;
+                        } else {
+                            mSeq = seqSimilarity(g1.art.baseHashes, g2.art.baseHashes)?.sim ?? null;
+                            mTf = tfidfSimilarity(g1.art.tf, g2.art.tf, df, nDocs);
+                            mSt = structSimilarity(g1.art.structVec, g2.art.structVec);
+                            // function bodies only compare within a language
+                            // family — cross-family 0 would be misleading
+                            mFu = g1.art.family === g2.art.family
+                                ? funcSimilarity(g1.art.funcs, g2.art.funcs) : null;
+                        }
+                    }
                     for (const [uid1, m1] of g1.members) {
                         for (const [uid2, m2] of g2.members) {
                             if (uid1 === uid2) continue;
@@ -300,12 +364,27 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                             const b = uid1 < uid2 ? uid2 : uid1;
                             const ra = uid1 < uid2 ? m1 : m2;
                             const rb = uid1 < uid2 ? m2 : m1;
+                            // per-rid evidence: same-group members may have
+                            // renamed variables / different comments
+                            const ea = ridArt.get(ra.rid.toHexString())!;
+                            const eb = ridArt.get(rb.rid.toHexString())!;
                             pairDocs.push({
                                 domainId, tid, reportId, pid,
                                 uid1: a, uid2: b, rid1: ra.rid, rid2: rb.rid,
                                 lang1: ra.lang, lang2: rb.lang,
                                 similarity: Math.round(sim * 10000) / 10000,
                                 level, common, createdAt: new Date(),
+                                simSeq: mSeq === null ? null : round4(mSeq),
+                                simTfidf: mTf === null ? null : round4(mTf),
+                                simVar: (() => {
+                                    const v = varSimilarity(ea.idents, eb.idents);
+                                    return v === null ? null : round4(v);
+                                })(),
+                                simFunc: mFu === null ? null : round4(mFu),
+                                simStruct: mSt === null ? null : round4(mSt),
+                                sharedComments: sharedCommentCount(ea.commentHashes, eb.commentHashes),
+                                flags1: ea.flags.length ? ea.flags : undefined,
+                                flags2: eb.flags.length ? eb.flags : undefined,
                             });
                             stats.pairs++;
                             stats[`l${level}` as 'l1' | 'l2' | 'l3']++;

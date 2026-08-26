@@ -19,6 +19,22 @@ export interface Token {
     v: string;
 }
 
+/**
+ * Optional side-channel collectors. The scanner discards identifier text and
+ * comment text by design (normalization is what defeats rename evasion), but
+ * the evidence metrics (variable-name similarity, shared comments, keyword
+ * flags) want that raw text. Collectors receive it without changing the token
+ * stream — tokenText() and therefore the fingerprint cache identity are
+ * unaffected by whether collectors are passed.
+ */
+export interface TokenCollectors {
+    /** Called for every NON-keyword identifier right before its V token is
+     *  pushed; `tokenIndex` is the index that V token will occupy. */
+    ident?: (word: string, tokenIndex: number) => void;
+    /** Called with the raw comment text (markers included) before it is dropped. */
+    comment?: (rawText: string) => void;
+}
+
 const C_KEYWORDS = new Set([
     'alignas', 'alignof', 'and', 'asm', 'auto', 'bool', 'break', 'case', 'catch', 'char',
     'class', 'const', 'const_cast', 'constexpr', 'continue', 'decltype', 'default', 'delete',
@@ -178,7 +194,7 @@ function skipToSemicolon(src: string, i: number) {
  * identifiers become placeholders so that renames/reformats do not change
  * the token stream.
  */
-export function tokenize(src: string, family: Family): Token[] {
+export function tokenize(src: string, family: Family, collectors?: TokenCollectors): Token[] {
     const tokens: Token[] = [];
     const push = (k: Token['k'], v: string) => tokens.push({ k, v });
     const n = src.length;
@@ -199,12 +215,16 @@ export function tokenize(src: string, family: Family): Token[] {
         }
         if (family === 'c' || family === 'plain') {
             if (c === '/' && src[i + 1] === '/') {
-                i = skipLogicalLine(src, i);
+                const end = skipLogicalLine(src, i);
+                collectors?.comment?.(src.slice(i, end));
+                i = end;
                 continue;
             }
             if (c === '/' && src[i + 1] === '*') {
                 const end = src.indexOf('*/', i + 2);
-                i = end === -1 ? n : end + 2;
+                const stop = end === -1 ? n : end + 2;
+                collectors?.comment?.(src.slice(i, stop));
+                i = stop;
                 continue;
             }
         }
@@ -227,7 +247,9 @@ export function tokenize(src: string, family: Family): Token[] {
         }
         if (family === 'python') {
             if (c === '#') {
-                i = skipLogicalLine(src, i);
+                const end = skipLogicalLine(src, i);
+                collectors?.comment?.(src.slice(i, end));
+                i = end;
                 continue;
             }
             if ((c === '"' || c === "'")
@@ -247,12 +269,16 @@ export function tokenize(src: string, family: Family): Token[] {
         if (family === 'pascal') {
             if (c === '{' && src[i - 1] !== "'") {
                 const end = src.indexOf('}', i + 1);
-                i = end === -1 ? n : end + 1;
+                const stop = end === -1 ? n : end + 1;
+                collectors?.comment?.(src.slice(i, stop));
+                i = stop;
                 continue;
             }
             if (c === '(' && src[i + 1] === '*') {
                 const end = src.indexOf('*)', i + 2);
-                i = end === -1 ? n : end + 2;
+                const stop = end === -1 ? n : end + 2;
+                collectors?.comment?.(src.slice(i, stop));
+                i = stop;
                 continue;
             }
             if (c === "'") {
@@ -304,7 +330,10 @@ export function tokenize(src: string, family: Family): Token[] {
                 continue;
             }
             if (keywords?.has(word)) push('kw', word);
-            else push('ph', 'V');
+            else {
+                collectors?.ident?.(word, tokens.length);
+                push('ph', 'V');
+            }
             i = j;
             continue;
         }

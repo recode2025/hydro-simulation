@@ -12,7 +12,8 @@ import {
 import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
 import { buildGraph } from './graph';
-import { diffCellLimit, fetchCode, readConfig } from './detect';
+import { buildUserSummary } from './lib/userSummary';
+import { diffCellLimit, fetchCode, readConfig, runDetection } from './detect';
 import { lineDiff, splitLines } from './lib/lcs';
 import type { PairDoc } from './model';
 import {
@@ -73,16 +74,31 @@ async function triggerScan(
         triggeredBy: uid,
     });
     if (!reportId) return false;
-    await enqueueScan(domainId, tid, reportId);
+    startScanNow(ctx, reportId);
     return true;
 }
 
-/** (Re)enqueue a report for immediate scanning. Duplicates are harmless: the
- *  scan handler CAS-claims the report, so the second task just no-ops. */
-function enqueueScan(domainId: string, tid: ObjectId, reportId: ObjectId) {
-    return ScheduleModel.add({
-        type: 'schedule', subType: 'sim.scan', domainId, tid, reportId,
-        executeAfter: new Date(),
+/**
+ * Start scanning a waiting report RIGHT NOW, bypassing the schedule queue.
+ *
+ * Manual triggers ("Scan now" / queue buttons) must not wait behind the
+ * worker loop: it is a serial await that can be busy for minutes with judge
+ * dispatch or unrelated schedule tasks, which users read as "stuck in queue".
+ * Safety is identical to the queued path — CAS claim + heartbeat + idempotent
+ * rerun all live inside runDetection. Only automatic triggers (post-contest
+ * precheck / sweep catch-up) still go through the schedule queue, where
+ * persistence and retry matter.
+ */
+function startScanNow(ctx: Context, reportId: ObjectId) {
+    ctx.setImmediate(async () => {
+        try {
+            const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
+            if (!ok) return; // already running / done / deleted — nothing to do
+            await runDetection(ctx, reportId);
+        } catch (e) {
+            ctx.logger.error('sim manual scan failed for %s', reportId.toHexString());
+            ctx.logger.error(e);
+        }
     });
 }
 
@@ -151,12 +167,12 @@ export class SimListHandler extends SimBaseHandler {
 
     // ---- queue management ----
 
-    /** Force a queued (waiting) report to execute now. */
+    /** Force a queued (waiting) report to execute now (bypasses the queue). */
     @requireSudo
     @param('reportId', Types.ObjectId)
     async postQueueRun(domainId: string, reportId: ObjectId) {
         const report = await collReport.findOne({ _id: reportId, domainId });
-        if (report?.status === 'waiting') await enqueueScan(domainId, report.tid, reportId);
+        if (report?.status === 'waiting') startScanNow(this.ctx, reportId);
         this.response.redirect = this.url('domain_sim_list');
     }
 
@@ -169,14 +185,14 @@ export class SimListHandler extends SimBaseHandler {
         this.response.redirect = this.url('domain_sim_list');
     }
 
-    /** Unlock a running report (stuck scan) and requeue it. */
+    /** Unlock a running report (stuck scan) and restart it immediately. */
     @requireSudo
     @param('reportId', Types.ObjectId)
     async postQueueReset(domainId: string, reportId: ObjectId) {
         const report = await collReport.findOne({ _id: reportId, domainId });
         if (report?.status === 'running') {
             await casStatus(reportId, 'running', 'waiting');
-            await enqueueScan(domainId, report.tid, reportId);
+            startScanNow(this.ctx, reportId);
         }
         this.response.redirect = this.url('domain_sim_list');
     }
@@ -188,7 +204,7 @@ export class SimListHandler extends SimBaseHandler {
         const report = await collReport.findOne({ _id: reportId, domainId });
         if (report?.status === 'failed') {
             await casStatus(reportId, 'failed', 'waiting');
-            await enqueueScan(domainId, report.tid, reportId);
+            startScanNow(this.ctx, reportId);
         }
         this.response.redirect = this.url('domain_sim_list');
     }
@@ -199,24 +215,75 @@ export class SimDetailHandler extends SimBaseHandler {
     @param('level', Types.Range(['1', '2', '3']), true)
     @param('pid', Types.PositiveInt, true)
     @param('page', Types.PositiveInt, true)
-    async get(domainId: string, tid: ObjectId, level = '1', pid?: number, page = 1) {
+    @param('user', Types.UidOrName, true)
+    async get(domainId: string, tid: ObjectId, level = '1', pid?: number, page = 1, user = '') {
         const tdoc = await ContestModel.get(domainId, tid);
         if (!tdoc) throw new NotFoundError(tid);
         const report = await getLatestReport(domainId, tid);
         const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
         const query: any = { domainId, tid, level: { $gte: minLevel } };
         if (pid) query.pid = pid;
+        // user filter: resolve name/mail/uid the same way the record list does
+        let filterUid = 0;
+        let filterUdoc: any = null;
+        if (user) {
+            filterUdoc = await UserModel.getById(domainId, +user)
+                || await UserModel.getByUname(domainId, user)
+                || await UserModel.getByEmail(domainId, user);
+            filterUid = filterUdoc?._id || 0;
+            if (filterUid) query.$or = [{ uid1: filterUid }, { uid2: filterUid }];
+        }
         const cursor = collPair.find(query).sort({ similarity: -1, pid: 1 });
         const [pairs, tpcount] = await this.paginate(cursor, page, PAGE_SIZE);
         const pids = Array.from(new Set(pairs.map((p) => p.pid).concat(tdoc.pids)));
+
+        // per-user rollup over ALL of the user's pairs (not just this page)
+        let userSummary = null as ReturnType<typeof buildUserSummary> | null;
+        if (filterUid) {
+            const allPairs = await collPair.find(
+                { domainId, tid, $or: [{ uid1: filterUid }, { uid2: filterUid }] },
+                {
+                    projection: {
+                        pid: 1, level: 1, similarity: 1, sharedComments: 1,
+                        flags1: 1, flags2: 1, uid1: 1, uid2: 1,
+                    },
+                },
+            ).limit(20000).toArray();
+            userSummary = buildUserSummary(allPairs, filterUid);
+        }
+
         const [udict, pdict] = await Promise.all([
-            UserModel.getListForRender(domainId, Array.from(new Set(pairs.flatMap((p) => [p.uid1, p.uid2]))), false),
+            UserModel.getListForRender(
+                domainId,
+                Array.from(new Set(
+                    pairs.flatMap((p) => [p.uid1, p.uid2]).concat(filterUid ? [filterUid] : []),
+                )),
+                false,
+            ),
             ProblemModel.getList(domainId, pids, true, false),
         ]);
+
+        // preformat metric cells server-side: nunjucks has no ternary and
+        // undefined/null/0 all falsy-test the same, which would hide real 0%
+        const pct = (x: number | null | undefined) => (
+            x === null || x === undefined ? null : `${Math.round(x * 1000) / 10}%`
+        );
+        const heat = (x: number | null | undefined) => (
+            x === null || x === undefined ? 'na' : x >= 0.7 ? 'high' : x >= 0.4 ? 'mid' : 'low'
+        );
+        const rows = pairs.map((p) => ({
+            pair: p,
+            seqD: pct(p.simSeq), tfidfD: pct(p.simTfidf), varD: pct(p.simVar),
+            funcD: pct(p.simFunc), structD: pct(p.simStruct),
+            seqH: heat(p.simSeq), tfidfH: heat(p.simTfidf), varH: heat(p.simVar),
+            funcH: heat(p.simFunc), structH: heat(p.simStruct),
+        }));
+
         this.response.template = 'sim_detail.html';
         this.response.body = {
-            tdoc, report, pairs, page, tpcount, udict, pdict,
+            tdoc, report, pairs: rows, page, tpcount, udict, pdict,
             level: String(minLevel), pid: pid || 0,
+            user, filterUdoc, userSummary,
             minLevels: [1, 2, 3],
             thresholds: report?.config?.thresholds || readConfig(this.ctx).thresholds,
             urlDiff: (pair: PairDoc) => this.url('domain_sim_diff', { tid, pairId: pair._id }),
@@ -225,7 +292,7 @@ export class SimDetailHandler extends SimBaseHandler {
             urlStatus: this.url('domain_sim_status', { tid }),
             urlContest: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_detail', { tid }),
             urlContestManage: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_manage', { tid }),
-            qs: `level=${minLevel}${pid ? `&pid=${pid}` : ''}`,
+            qs: `level=${minLevel}${pid ? `&pid=${pid}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}`,
         };
     }
 

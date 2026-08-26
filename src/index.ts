@@ -23,13 +23,22 @@ import {
 const Setting = SettingModel.Setting;
 const FAMILY = 'setting_sim';
 
+/** A running report whose lockedAt is older than this is a zombie (the
+ *  detection loop heartbeats every ~25s, so 3min is a 7x margin). */
+const STALE_RUNNING_MS = 3 * 60_000;
+/** A waiting report older than this lost its schedule task somewhere
+ *  (consumed-but-failed handler, mongo blip on insert) — sweep re-enqueues. */
+const STALE_WAITING_MS = 2 * 60_000;
+/** How long a failed report waits before the sweep may auto-retry it. */
+const FAILED_RETRY_MS = 60 * 60_000;
+
 const SETTINGS = [
     Setting(FAMILY, 'sim.threshold.identical', 0.95, 'float', 'sim.threshold.identical', ''),
     Setting(FAMILY, 'sim.threshold.high', 0.75, 'float', 'sim.threshold.high', ''),
     Setting(FAMILY, 'sim.threshold.suspected', 0.55, 'float', 'sim.threshold.suspected', ''),
     Setting(FAMILY, 'sim.kgram', 8, 'number', 'sim.kgram', ''),
-    Setting(FAMILY, 'sim.minTokens', 30, 'number', 'sim.minTokens', ''),
-    Setting(FAMILY, 'sim.maxCodeSize', 131072, 'number', 'sim.maxCodeSize', ''),
+    Setting(FAMILY, 'sim.minTokens', 0, 'number', 'sim.minTokens', ''),
+    Setting(FAMILY, 'sim.maxCodeSize', 1_048_576, 'number', 'sim.maxCodeSize', ''),
     Setting(FAMILY, 'sim.submissionMode', 'latest',
         [['latest', 'sim_mode_latest'], ['all', 'sim_mode_all']] as [string, string][],
         'sim.submissionMode', ''),
@@ -89,7 +98,32 @@ export default definePlugin({
                 try {
                     const reportId: ObjectId = new ObjectId(doc.reportId);
                     const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
-                    if (!ok) return;
+                    if (!ok) {
+                        // claim failed: find out why instead of dying silently
+                        const cur = await collReport.findOne(
+                            { _id: reportId },
+                            { projection: { status: 1, lockedAt: 1 } },
+                        );
+                        if (cur?.status === 'running'
+                            && (!cur.lockedAt || Date.now() - cur.lockedAt.getTime() > STALE_RUNNING_MS)) {
+                            // zombie run (process died mid-detection): reclaim
+                            // the lock and restart right here instead of
+                            // waiting for the next sweep
+                            await collReport.updateOne(
+                                { _id: reportId, status: 'running' },
+                                { $set: { lockedAt: new Date(), startedAt: new Date() } },
+                            );
+                            c.logger.warn('sim.scan %s: reclaimed stale running report, restarting', reportId.toHexString());
+                            c.setImmediate(() => {
+                                runDetection(c, reportId).catch((e) => c.logger.error(e));
+                            });
+                        } else {
+                            // waiting = another task claimed it first (dup); done/
+                            // failed/gone = expected after admin actions
+                            c.logger.info('sim.scan %s: claim skipped (status=%s)', reportId.toHexString(), cur?.status ?? 'gone');
+                        }
+                        return;
+                    }
                     c.setImmediate(() => {
                         runDetection(c, reportId).catch(async (e) => {
                             c.logger.error(e);
@@ -151,8 +185,8 @@ export default definePlugin({
                 // 0) requeue waiting reports whose schedule task was lost
                 //    (consumed-but-failed handler, add raced with a blip...)
                 const staleWaiting = await collReport.find({
-                    status: 'waiting', createdAt: { $lt: new Date(now - 10 * 60_000) },
-                }).limit(cfg.sweepBatch).toArray();
+                    status: 'waiting', createdAt: { $lt: new Date(now - STALE_WAITING_MS) },
+                }).limit(20).toArray();
                 for (const report of staleWaiting) {
                     await ScheduleModel.add({
                         type: 'schedule', subType: 'sim.scan',
@@ -162,7 +196,7 @@ export default definePlugin({
                 }
                 // 1) recover reports stuck in running (process died mid-run)
                 const stuck = await collReport.find({
-                    status: 'running', lockedAt: { $lt: new Date(now - 10 * 60_000) },
+                    status: 'running', lockedAt: { $lt: new Date(now - STALE_RUNNING_MS) },
                 }).limit(20).toArray();
                 for (const report of stuck) {
                     const ok = await casStatus(report._id, 'running', 'waiting');
@@ -191,15 +225,27 @@ export default definePlugin({
                     }, { projection: { docId: 1, title: 1, rule: 1, beginAt: 1, endAt: 1 } }).limit(50).toArray();
                     if (!tdocs.length) continue;
                     // one batched query per domain instead of a findOne per contest
+                    // (newest report per tid: sorted, first hit wins)
                     const existing = await collReport.find(
                         { domainId: d._id, tid: { $in: tdocs.map((t) => t.docId) } },
-                        { projection: { tid: 1, status: 1 } },
-                    ).toArray();
-                    const seen = new Map(existing.map((r) => [String(r.tid), r.status]));
+                        { projection: { tid: 1, status: 1, finishedAt: 1, createdAt: 1 } },
+                    ).sort({ createdAt: -1 }).toArray();
+                    const seen = new Map<string, { status: string; finishedAt?: Date }>();
+                    for (const r of existing) {
+                        const key = String(r.tid);
+                        if (!seen.has(key)) seen.set(key, { status: r.status, finishedAt: r.finishedAt });
+                    }
                     for (const tdoc of tdocs) {
                         if (budget <= 0) break outer;
                         const st = seen.get(String(tdoc.docId));
-                        if (st && st !== 'failed') continue;
+                        if (st) {
+                            if (st.status !== 'failed') continue;
+                            // rate-limit auto-retry of failed scans (at most
+                            // hourly) so one persistently failing scan cannot
+                            // churn the queue on every sweep pass
+                            const failedAt = st.finishedAt?.getTime() || 0;
+                            if (now - failedAt < FAILED_RETRY_MS) continue;
+                        }
                         const reportId = await createReport({
                             domainId: d._id, tid: tdoc.docId,
                             title: tdoc.title, rule: tdoc.rule || 'acm',
@@ -250,12 +296,41 @@ export default definePlugin({
         ctx.on('app/started', async () => {
             try {
                 await ensureIndexes(ctx);
-                if (process.env.NODE_APP_INSTANCE !== '0') return;
-                if (!await ScheduleModel.count({ type: 'schedule', subType: 'sim.sweep' })) {
-                    await ScheduleModel.add({
-                        type: 'schedule', subType: 'sim.sweep',
-                        interval: [1, 'hour'],
-                    });
+                // NOTE: NODE_APP_INSTANCE is only set under PM2 cluster mode.
+                // A plain `hydrooj serve` leaves it undefined — the stock
+                // `!== '0'` guard would skip sweep bootstrap entirely in dev,
+                // so undefined is treated as single-instance and bootstraps.
+                const instance = process.env.NODE_APP_INSTANCE;
+                if (instance !== undefined && instance !== '0') return;
+                // sweep every 5 minutes (not hourly): queue recovery paths —
+                // a lost schedule task or a zombie running report — then heal
+                // within minutes. deleteMany+add also migrates an existing
+                // hourly task from an older plugin version and self-heals
+                // duplicates from racing instances.
+                await ScheduleModel.deleteMany({ type: 'schedule', subType: 'sim.sweep' });
+                await ScheduleModel.add({
+                    type: 'schedule', subType: 'sim.sweep',
+                    interval: [5, 'minute'],
+                });
+                // One-time default bump: SettingModel.apply only writes a
+                // default when the stored value is absent, and existing
+                // installs already have the OLD defaults (30 / 131072)
+                // persisted. Overwrite those (and only those) so upgraded
+                // installs pick up "never skip short code" behavior; an
+                // admin-chosen other value is left untouched.
+                const sys = ctx.db.collection('system');
+                if (!await sys.findOne({ _id: 'sim.defaults.v2' })) {
+                    const bump = async (key: string, from: number, to: number) => {
+                        const cur = await sys.findOne({ _id: key });
+                        const v = Number((cur as any)?.value);
+                        if (!cur || (cur as any).value == null || (cur as any).value === ''
+                            || v === from) {
+                            await global.Hydro.model.system.set(key, to);
+                        }
+                    };
+                    await bump('sim.minTokens', 30, 0);
+                    await bump('sim.maxCodeSize', 131072, 1_048_576);
+                    await global.Hydro.model.system.set('sim.defaults.v2', 1);
                 }
             } catch (e) {
                 ctx.logger.error('sim deferred init failed');
