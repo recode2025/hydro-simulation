@@ -314,12 +314,15 @@ export class SimDetailHandler extends SimBaseHandler {
         }
 
         const [udict, pdict] = await Promise.all([
-            UserModel.getListForRender(
+            // getList (NOT getListForRender): render_inline's badge branch
+            // calls udoc.hasPriv/hasPerm, which only exist on User instances —
+            // plain getListForRender docs crashed the whole page the first
+            // time a completed report actually rendered its pair table
+            UserModel.getList(
                 domainId,
                 Array.from(new Set(
                     pairs.flatMap((p) => [p.uid1, p.uid2]).concat(filterUid ? [filterUid] : []),
                 )),
-                false,
             ),
             ProblemModel.getList(domainId, pids, true, false),
         ]);
@@ -425,7 +428,8 @@ export class SimDiffHandler extends SimBaseHandler {
         const [code1, code2, udict, pdict] = await Promise.all([
             fetchCode(rdoc1 as any),
             fetchCode(rdoc2 as any),
-            UserModel.getListForRender(domainId, [pair.uid1, pair.uid2], false),
+            // User instances, same reason as the detail handler above
+            UserModel.getList(domainId, [pair.uid1, pair.uid2]),
             ProblemModel.getList(domainId, [pair.pid], true, false),
         ]);
         const a = splitLines(code1);
