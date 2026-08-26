@@ -323,10 +323,34 @@ export async function getFingerprintMap(rids: ObjectId[]) {
     return map;
 }
 
+/** Insert pairs in 500-doc chunks, RETRYING transient db blips. A blip at
+ *  this write used to discard the whole run's compute (the scan reached the
+ *  final flush after minutes of work, one insertMany hit a restarting mongo
+ *  client, and the requeue recomputed everything). Retry is idempotent:
+ *  every (report, problem)'s pairs pass through exactly ONE flush, so
+ *  deleting {reportId, pid ∈ buffer} before re-inserting can neither
+ *  duplicate this flush nor touch pairs other flushes already wrote. */
 export async function insertPairs(docs: Omit<PairDoc, '_id'>[]) {
-    for (let i = 0; i < docs.length; i += 500) {
-        const chunk = docs.slice(i, i + 500).map((d) => ({ ...d, _id: new ObjectId() }));
-        if (chunk.length) await collPair.insertMany(chunk, { ordered: false });
+    if (!docs.length) return;
+    const reportId = docs[0].reportId;
+    const pids = Array.from(new Set(docs.map((d) => d.pid)));
+    for (let attempt = 0; ; attempt++) {
+        try {
+            for (let i = 0; i < docs.length; i += 500) {
+                const chunk = docs.slice(i, i + 500).map((d) => ({ ...d, _id: new ObjectId() }));
+                if (chunk.length) await collPair.insertMany(chunk, { ordered: false });
+            }
+            return;
+        } catch (e) {
+            if (attempt >= 2 || !isTransientDbError(e)) throw e;
+            // sub-second topology blips (service restart window) are usually
+            // gone by the next op — the requeue writes after the very error
+            // that lands here have been observed to succeed immediately
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+                await collPair.deleteMany({ reportId, pid: { $in: pids } });
+            } catch { /* best effort; a rerun's reportId wipe cleans up */ }
+        }
     }
 }
 
