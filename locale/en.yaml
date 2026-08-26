@@ -2,6 +2,7 @@
 'Sim Detection': Sim Detection
 'domain_sim_list': Code Similarity
 'domain_sim_detail': Similarity Report
+'domain_sim_status': Similarity Status
 'domain_sim_diff': Code Diff
 'domain_sim_graph': Plagiarism Network
 'domain_sim_graph_api': Plagiarism Network Data
@@ -25,6 +26,14 @@
 'Details': Details
 'Network': Network
 
+'Scan Queue': Scan Queue
+'Queued for': Queued for
+'min': min
+'Run now': Run now
+'Cancel': Cancel
+'Force reset': Force reset
+'Retry': Retry
+
 'Similarity Report': Similarity Report
 'Mode': Mode
 'Users': Users
@@ -32,6 +41,7 @@
 'skipped': skipped
 'Similar pairs': Similar pairs
 'Finished at': Finished at
+'Problem': Problem
 'This contest has not been scanned yet.': This contest has not been scanned yet.
 'The scan is queued and will run soon.': The scan is queued and will run soon.
 'Scan is in progress; refresh this page later.': Scan is in progress; refresh this page later.

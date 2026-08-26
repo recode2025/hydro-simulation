@@ -16,7 +16,8 @@ import { diffCellLimit, fetchCode, readConfig } from './detect';
 import { lineDiff, splitLines } from './lib/lcs';
 import type { PairDoc } from './model';
 import {
-    collPair, createReport, deleteContestData, getLatestReport, getLatestReportMap,
+    casStatus, collPair, collReport, createReport, deleteContestData, getLatestReport,
+    getLatestReportMap,
 } from './model';
 
 const PAGE_SIZE = 50;
@@ -72,11 +73,17 @@ async function triggerScan(
         triggeredBy: uid,
     });
     if (!reportId) return false;
-    await ScheduleModel.add({
+    await enqueueScan(domainId, tid, reportId);
+    return true;
+}
+
+/** (Re)enqueue a report for immediate scanning. Duplicates are harmless: the
+ *  scan handler CAS-claims the report, so the second task just no-ops. */
+function enqueueScan(domainId: string, tid: ObjectId, reportId: ObjectId) {
+    return ScheduleModel.add({
         type: 'schedule', subType: 'sim.scan', domainId, tid, reportId,
         executeAfter: new Date(),
     });
-    return true;
 }
 
 export class SimBaseHandler extends Handler {
@@ -95,9 +102,26 @@ export class SimListHandler extends SimBaseHandler {
             .sort({ endAt: -1, beginAt: -1, _id: -1 });
         const [tdocs, tpcount] = await this.paginate(cursor, page, 'contest');
         const reports = await getLatestReportMap(domainId, tdocs.map((t: any) => t.docId));
+        // queue management: everything not finished, oldest first
+        const queueDocs = await collReport.find(
+            { domainId, status: { $in: ['waiting', 'running', 'failed'] } },
+        ).sort({ createdAt: 1 }).limit(50).toArray();
+        const now = Date.now();
+        const queue = queueDocs.map((r) => ({
+            _id: r._id,
+            tid: r.tid,
+            title: r.title,
+            status: r.status,
+            progress: r.progress,
+            error: r.error,
+            minutes: Math.max(0, Math.floor((now - r.createdAt.getTime()) / 60000)),
+        }));
         this.response.template = 'sim_list.html';
         this.response.body = {
-            page, tpcount, scope: s, tdocs, reports,
+            page, tpcount, scope: s, tdocs, reports, queue,
+            // any report in flight on this page -> template enables auto refresh
+            scanning: Object.values(reports).some((r) => r.status === 'waiting' || r.status === 'running')
+                || queue.some((r) => r.status === 'waiting' || r.status === 'running'),
             thresholds: readConfig(this.ctx).thresholds,
             qs: s === 'both' ? '' : `scope=${s}`,
             urlContest: (tid: ObjectId) => this.url('contest_detail', { tid }),
@@ -123,6 +147,50 @@ export class SimListHandler extends SimBaseHandler {
             identical: tIdentical, high: tHigh, suspected: tSuspected,
         });
         this.response.redirect = this.url('domain_sim_detail', { tid });
+    }
+
+    // ---- queue management ----
+
+    /** Force a queued (waiting) report to execute now. */
+    @requireSudo
+    @param('reportId', Types.ObjectId)
+    async postQueueRun(domainId: string, reportId: ObjectId) {
+        const report = await collReport.findOne({ _id: reportId, domainId });
+        if (report?.status === 'waiting') await enqueueScan(domainId, report.tid, reportId);
+        this.response.redirect = this.url('domain_sim_list');
+    }
+
+    /** Drop a queued report and its pending task. */
+    @requireSudo
+    @param('reportId', Types.ObjectId)
+    async postQueueCancel(domainId: string, reportId: ObjectId) {
+        await ScheduleModel.deleteMany({ type: 'schedule', subType: 'sim.scan', reportId });
+        await collReport.deleteOne({ _id: reportId, domainId, status: 'waiting' });
+        this.response.redirect = this.url('domain_sim_list');
+    }
+
+    /** Unlock a running report (stuck scan) and requeue it. */
+    @requireSudo
+    @param('reportId', Types.ObjectId)
+    async postQueueReset(domainId: string, reportId: ObjectId) {
+        const report = await collReport.findOne({ _id: reportId, domainId });
+        if (report?.status === 'running') {
+            await casStatus(reportId, 'running', 'waiting');
+            await enqueueScan(domainId, report.tid, reportId);
+        }
+        this.response.redirect = this.url('domain_sim_list');
+    }
+
+    /** Retry a failed report with its snapshotted config. */
+    @requireSudo
+    @param('reportId', Types.ObjectId)
+    async postQueueRetry(domainId: string, reportId: ObjectId) {
+        const report = await collReport.findOne({ _id: reportId, domainId });
+        if (report?.status === 'failed') {
+            await casStatus(reportId, 'failed', 'waiting');
+            await enqueueScan(domainId, report.tid, reportId);
+        }
+        this.response.redirect = this.url('domain_sim_list');
     }
 }
 
@@ -154,6 +222,8 @@ export class SimDetailHandler extends SimBaseHandler {
             urlDiff: (pair: PairDoc) => this.url('domain_sim_diff', { tid, pairId: pair._id }),
             urlRecord: (rid: ObjectId) => this.url('record_detail', { rid }),
             urlGraph: this.url('domain_sim_graph', { tid }),
+            urlStatus: this.url('domain_sim_status', { tid }),
+            urlContest: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_detail', { tid }),
             urlContestManage: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_manage', { tid }),
             qs: `level=${minLevel}${pid ? `&pid=${pid}` : ''}`,
         };
@@ -218,6 +288,19 @@ export class SimDiffHandler extends SimBaseHandler {
             urlRecord1: this.url('record_detail', { rid: pair.rid1 }),
             urlRecord2: this.url('record_detail', { rid: pair.rid2 }),
             urlBack: this.url('domain_sim_detail', { tid }),
+        };
+    }
+}
+
+/** Lightweight JSON status endpoint for live progress polling (admin only). */
+export class SimStatusHandler extends SimBaseHandler {
+    @param('tid', Types.ObjectId)
+    async get(domainId: string, tid: ObjectId) {
+        const report = await getLatestReport(domainId, tid);
+        this.response.body = {
+            status: report?.status || 'none',
+            processed: report?.progress?.processed || 0,
+            total: report?.progress?.total || 0,
         };
     }
 }

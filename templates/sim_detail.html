@@ -1,11 +1,19 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=2">
 <div class="section">
   <div class="section__header">
-    <h1 class="section__title" data-heading>
-      {{ _('Similarity Report') }}{% if isHomework %} — {{ _('Homework') }}{% endif %}: {{ tdoc.title }}
-    </h1>
+    <div>
+      <h1 class="section__title" data-heading>
+        {{ _('Similarity Report') }}{% if isHomework %} — {{ _('Homework') }}{% endif %}
+      </h1>
+      <div class="supplementary sim-subtitle">
+        <a href="{{ urlContest }}">{{ tdoc.title }}</a>
+        · {{ datetimeSpan(tdoc.beginAt, false, 'YYYY-MM-DD HH:mm')|safe }} ~ {{ datetimeSpan(tdoc.endAt, false, 'MM-DD HH:mm')|safe }}
+        · {{ tdoc.pids|length }} {{ _('Problem') }}
+        {% if report and report.status == 'done' %}· {{ _('Finished at') }} {{ datetimeSpan(report.finishedAt, false, 'YYYY-MM-DD HH:mm')|safe }}{% endif %}
+      </div>
+    </div>
     <div class="section__tools sim-toolbar">
       <a class="rounded button" href="{{ urlContestManage }}">
         <span class="icon icon-settings"></span> {{ _('Contest Management') }}
@@ -22,7 +30,13 @@
     {% elif report.status == 'waiting' %}
       <p><span class="sim-badge sim-badge--waiting">{{ _('Waiting') }}</span> {{ _('The scan is queued and will run soon.') }}</p>
     {% elif report.status == 'running' %}
-      <p><span class="sim-badge sim-badge--running">{{ _('Running') }} {{ report.progress.processed }}/{{ report.progress.total }}</span> {{ _('Scan is in progress; refresh this page later.') }}</p>
+      <div class="sim-progress" data-sim-status-url="{{ urlStatus }}">
+        <span class="sim-badge sim-badge--running">{{ _('Running') }} <span data-sim-progress>{{ report.progress.processed }}/{{ report.progress.total }}</span></span>
+        <div class="sim-progressbar">
+          <div class="sim-progressbar__fill" data-sim-bar style="width: {{ report.progress.total ? (report.progress.processed / report.progress.total * 100)|round(1) : 0 }}%"></div>
+        </div>
+        <span class="supplementary">{{ _('Scan is in progress; refresh this page later.') }}</span>
+      </div>
     {% else %}
       <p><span class="sim-badge sim-badge--failed">{{ _('Failed') }}</span> <code>{{ report.error }}</code></p>
     {% endif %}
@@ -87,7 +101,6 @@
         <span class="sim-badge sim-badge--2">{{ _('High') }} ≥ {{ report.config.thresholds.high }}</span>
         <span class="sim-badge sim-badge--1">{{ _('Suspected') }} ≥ {{ report.config.thresholds.suspected }}</span>
       </span>
-      <span>{{ _('Finished at') }}: {{ datetimeSpan(report.finishedAt, false, 'YYYY-MM-DD HH:mm')|safe }}</span>
     </div>
   {% endif %}
   </div>
@@ -97,7 +110,7 @@
 <div class="section">
   <div class="section__header">
     <h1 class="section__title">{{ _('Similar Pairs') }}</h1>
-    <div class="section__tools sim-toolbar">
+    <div class="section__tools">
       <form method="get" name="filter-form" class="sim-toolbar">
         <select class="inline compact select" name="level">
           <option value="1"{% if level == '1' %} selected{% endif %}>{{ _('Suspected and above') }}</option>
@@ -133,7 +146,7 @@
       </thead>
       <tbody>
       {%- for pair in pairs -%}
-        <tr>
+        <tr class="sim-row--{{ pair.level }}">
           <td>
             {% if pair.level == 3 %}<span class="sim-badge sim-badge--3">{{ _('Identical') }}</span>
             {% elif pair.level == 2 %}<span class="sim-badge sim-badge--2">{{ _('High') }}</span>
@@ -195,5 +208,31 @@
     </form>
   </div>
 </div>
+{% endif %}
+
+{% if report and (report.status == 'waiting' or report.status == 'running') %}
+<script>
+(function () {
+  var box = document.querySelector('.sim-progress');
+  if (!box) { setTimeout(function () { location.reload(); }, 8000); return; }
+  var url = box.getAttribute('data-sim-status-url');
+  var label = box.querySelector('[data-sim-progress]');
+  var bar = box.querySelector('[data-sim-bar]');
+  var finished = false;
+  function poll() {
+    if (finished || document.visibilityState !== 'visible') return;
+    fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.status !== 'waiting' && d.status !== 'running') {
+        finished = true;
+        location.reload();
+        return;
+      }
+      if (label) label.textContent = d.processed + '/' + d.total;
+      if (bar) bar.style.width = (d.total ? Math.round(d.processed / d.total * 1000) / 10 : 0) + '%';
+    }).catch(function () {});
+  }
+  setInterval(poll, 3000);
+})();
+</script>
 {% endif %}
 {% endblock %}

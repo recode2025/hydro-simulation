@@ -1,6 +1,6 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=2">
 <div class="section">
   <div class="section__header">
     <h1 class="section__title" data-heading>{{ _('Code Diff') }} — #{{ pair.pid }} {{ pdict[pair.pid].title|default('') if pdict else '' }}</h1>

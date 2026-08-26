@@ -14,6 +14,7 @@ import { ObjectId } from 'mongodb';
 import { readConfig, runDetection } from './detect';
 import {
     SimDiffHandler, SimDetailHandler, SimGraphApiHandler, SimGraphHandler, SimListHandler,
+    SimStatusHandler,
 } from './handler';
 import {
     casStatus, collReport, createReport, deleteDomainData, ensureIndexes,
@@ -69,6 +70,7 @@ export default definePlugin({
 
         ctx.Route('domain_sim_list', '/domain/sim', SimListHandler, PERM.PERM_EDIT_DOMAIN);
         ctx.Route('domain_sim_detail', '/domain/sim/:tid', SimDetailHandler, PERM.PERM_EDIT_DOMAIN);
+        ctx.Route('domain_sim_status', '/domain/sim/:tid/status.json', SimStatusHandler, PERM.PERM_EDIT_DOMAIN);
         // contest-scoped alias: the report also lives under the contest's own
         // URL space so admins can reach it per contest (/contest/<tid>/sim)
         ctx.Route('contest_sim', '/contest/:tid/sim', SimDetailHandler, PERM.PERM_EDIT_DOMAIN);
@@ -84,14 +86,28 @@ export default definePlugin({
             // (worker is a serial await loop — a long detection here would
             // stall judge dispatch and every other schedule task)
             c.worker.addHandler('sim.scan', async (doc: any) => {
-                const reportId: ObjectId = new ObjectId(doc.reportId);
-                const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
-                if (!ok) return;
-                c.setImmediate(() => {
-                    runDetection(c, reportId).catch(async (e) => {
-                        c.logger.error(e);
+                try {
+                    const reportId: ObjectId = new ObjectId(doc.reportId);
+                    const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
+                    if (!ok) return;
+                    c.setImmediate(() => {
+                        runDetection(c, reportId).catch(async (e) => {
+                            c.logger.error(e);
+                        });
                     });
-                });
+                } catch (e) {
+                    // the schedule task is consumed the moment this handler
+                    // runs; if we fail before claiming the report it would
+                    // sit in "waiting" forever — put the task back
+                    c.logger.error(e);
+                    try {
+                        await ScheduleModel.add({
+                            type: 'schedule', subType: 'sim.scan',
+                            domainId: doc.domainId, tid: doc.tid, reportId: doc.reportId,
+                            executeAfter: new Date(Date.now() + 120_000),
+                        });
+                    } catch { /* hourly sweep requeue covers it */ }
+                }
             });
 
             // precheck fires at endAt+grace: creates the report and enqueues the scan
@@ -132,6 +148,18 @@ export default definePlugin({
                 const cfg = readConfig(c);
                 if (!cfg.autoScan) return;
                 const now = Date.now();
+                // 0) requeue waiting reports whose schedule task was lost
+                //    (consumed-but-failed handler, add raced with a blip...)
+                const staleWaiting = await collReport.find({
+                    status: 'waiting', createdAt: { $lt: new Date(now - 10 * 60_000) },
+                }).limit(cfg.sweepBatch).toArray();
+                for (const report of staleWaiting) {
+                    await ScheduleModel.add({
+                        type: 'schedule', subType: 'sim.scan',
+                        domainId: report.domainId, tid: report.tid, reportId: report._id,
+                        executeAfter: new Date(),
+                    });
+                }
                 // 1) recover reports stuck in running (process died mid-run)
                 const stuck = await collReport.find({
                     status: 'running', lockedAt: { $lt: new Date(now - 10 * 60_000) },

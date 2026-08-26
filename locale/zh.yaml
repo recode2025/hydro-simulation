@@ -2,6 +2,7 @@
 'Sim Detection': 代码查重
 'domain_sim_list': 域内代码查重
 'domain_sim_detail': 查重报告
+'domain_sim_status': 查重状态
 'domain_sim_diff': 代码对比
 'domain_sim_graph': 抄袭关系网
 'domain_sim_graph_api': 抄袭关系网数据
@@ -26,6 +27,15 @@
 'Details': 详情
 'Network': 关系网
 
+# queue management
+'Scan Queue': 查重队列
+'Queued for': 已等待
+'min': 分钟
+'Run now': 立即执行
+'Cancel': 取消
+'Force reset': 强制复位
+'Retry': 重试
+
 # detail page
 'Similarity Report': 查重报告
 'Mode': 模式
@@ -34,6 +44,7 @@
 'skipped': 已跳过
 'Similar pairs': 相似对
 'Finished at': 完成时间
+'Problem': 题目
 'This contest has not been scanned yet.': 该比赛尚未查重。
 'The scan is queued and will run soon.': 查重任务已排队，稍后自动执行。
 'Scan is in progress; refresh this page later.': 查重进行中，请稍后刷新本页。
