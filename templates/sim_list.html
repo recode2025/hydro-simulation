@@ -122,6 +122,8 @@
               <span class="sim-badge sim-badge--running">{{ _('Running') }} {{ report.progress.processed }}/{{ report.progress.total }}</span>
             {% elif report.status == 'failed' %}
               <span class="sim-badge sim-badge--failed" title="{{ report.error }}">{{ _('Failed') }}</span>
+            {% elif report.status == 'cancelled' %}
+              <span class="sim-badge sim-badge--none">{{ _('Cancelled') }}</span>
             {% else %}
               <span class="sim-badge sim-badge--done">{{ _('Done') }}</span>
             {% endif %}

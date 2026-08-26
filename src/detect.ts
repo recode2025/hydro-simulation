@@ -143,6 +143,11 @@ const yieldLoop = () => new Promise<void>((r) => setImmediate(r));
  *  would otherwise emit O(n^2) pairs for a single problem. */
 const MAX_PAIRS_PER_REPORT = 50_000;
 
+/** A "transient" db error that survives this many retries is not transient:
+ *  fail the report (sweep/admin retry still applies) instead of queue-
+ *  looping forever, which reads on the UI as stuck in 排队中 with no reason. */
+const MAX_TRANSIENT_RETRIES = 5;
+
 interface FpGroup {
     codeHash: string;
     fps: Uint32Array;
@@ -462,15 +467,38 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             // mongo blip (restart / network): do NOT permanently fail the
             // report — put it back to waiting and requeue a retry
             try {
+                const attempts = (report.attempts ?? 0) + 1;
+                const msg = (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).slice(0, 1000);
+                if (attempts >= MAX_TRANSIENT_RETRIES) {
+                    // persistent "transient" errors looped the queue long
+                    // enough — surface the reason and stop retrying
+                    if (await failReport(reportId, `${msg} (gave up after ${attempts} retries)`, runId)) {
+                        ctx.logger.error(
+                            'sim.scan %s: transient retry cap reached, failing', reportId.toHexString(),
+                        );
+                    }
+                    return;
+                }
                 // progress resets inside requeueReport, so the retried run
-                // reads as a fresh scan instead of a finished bar + Waiting
-                if (!(await requeueReport(reportId, runId))) return; // superseded elsewhere
+                // reads as a fresh scan instead of a finished bar + Waiting;
+                // lastError records WHY it keeps requeueing (error used to be
+                // swallowed into the log, leaving a queue that never drained)
+                if (!(await requeueReport(reportId, runId, { lastError: msg, attempts }))) {
+                    return; // superseded elsewhere
+                }
+                // drop tasks from earlier requeues first: each requeue adding
+                // another delayed task stacks duplicates (CAS makes the extra
+                // claims no-ops, but the queue fills with junk)
+                await ScheduleModel.deleteMany({ type: 'schedule', subType: 'sim.scan', reportId });
                 await ScheduleModel.add({
                     type: 'schedule', subType: 'sim.scan',
                     domainId: report.domainId, tid: report.tid, reportId,
-                    executeAfter: new Date(Date.now() + 60_000),
+                    executeAfter: new Date(Date.now() + Math.min(60_000 * 2 ** (attempts - 1), 15 * 60_000)),
                 });
-                ctx.logger.info('sim.scan %s requeued after transient db error', reportId.toHexString());
+                ctx.logger.info(
+                    'sim.scan %s requeued after transient db error (attempt %d): %s',
+                    reportId.toHexString(), attempts, msg,
+                );
                 return;
             } catch (e2) {
                 ctx.logger.error(e2);

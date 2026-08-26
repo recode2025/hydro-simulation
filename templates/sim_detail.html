@@ -35,6 +35,9 @@
       {% if report.progress.total %}
       <p class="supplementary">{{ _('A previous attempt was interrupted; the scan will restart from the beginning.') }}</p>
       {% endif %}
+      {% if report.lastError %}
+      <p class="supplementary sim-cell--err">{{ _('Retrying after error') }}{% if report.attempts %} (#{{ report.attempts + 1 }}){% endif %}: <code>{{ report.lastError }}</code></p>
+      {% endif %}
       <form method="post" class="sim-inline-form">
         <input type="hidden" name="operation" value="runNow">
         <input type="hidden" name="tid" value="{{ tid }}">
@@ -49,6 +52,8 @@
         </div>
         <span class="supplementary">{{ _('Scan is in progress; refresh this page later.') }}</span>
       </div>
+    {% elif report.status == 'cancelled' %}
+      <p><span class="sim-badge sim-badge--none">{{ _('Cancelled') }}</span> {{ _('This scan was cancelled or deleted by an administrator and will not restart automatically. Use "Scan now" to run it again.') }}</p>
     {% else %}
       <p><span class="sim-badge sim-badge--failed">{{ _('Failed') }}</span> <code>{{ report.error }}</code></p>
     {% endif %}

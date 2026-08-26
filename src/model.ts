@@ -7,11 +7,13 @@
  *  - sim.fingerprint  per-rid k-gram fingerprint cache (document cache)
  *
  * Report status machine: waiting -> running -> done | failed
+ * (admin delete/cancel marks reports 'cancelled' — a terminal tombstone that
+ * blocks auto-recreation; see cancelContestData).
  * All transitions are CAS (updateOne with status precondition) so double
  * triggers / crashed workers cannot run the same contest twice.
  */
 
-import { db } from 'hydrooj';
+import { ScheduleModel, db } from 'hydrooj';
 import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
 import type { Collection } from 'mongodb';
@@ -28,7 +30,7 @@ export interface ReportDoc {
     rule: string;
     beginAt: Date;
     endAt: Date;
-    status: 'waiting' | 'running' | 'done' | 'failed';
+    status: 'waiting' | 'running' | 'done' | 'failed' | 'cancelled';
     progress: { total: number; processed: number };
     stats?: {
         users: number; submissions: number; skipped: number;
@@ -47,6 +49,11 @@ export interface ReportDoc {
      *  write of that run so a superseded (swept/requeued) run cannot touch
      *  the state of the run that replaced it. Absent on pre-token reports. */
     runId?: ObjectId;
+    /** last transient error that requeued the run — the reason a waiting
+     *  report keeps waiting (cleared on successful finish). */
+    lastError?: string;
+    /** transient-retry count for the current execution series (reset on claim). */
+    attempts?: number;
 }
 
 export interface PairDoc {
@@ -221,13 +228,13 @@ function ownedFilter(reportId: ObjectId, runId?: ObjectId) {
 }
 
 /** Atomically claim a waiting report for execution, stamping it with a fresh
- *  run token. Returns the token, or null when the race was lost (already
- *  claimed / done / gone). */
+ *  run token (and a fresh transient-retry budget). Returns the token, or
+ *  null when the race was lost (already claimed / done / gone). */
 export async function claimReport(reportId: ObjectId) {
     const runId = new ObjectId();
     const ok = await collReport.updateOne(
         { _id: reportId, status: 'waiting' },
-        { $set: { status: 'running', lockedAt: new Date(), startedAt: new Date(), runId } },
+        { $set: { status: 'running', lockedAt: new Date(), startedAt: new Date(), runId, attempts: 0 } },
     ).then((r) => r.modifiedCount === 1);
     return ok ? runId : null;
 }
@@ -236,12 +243,13 @@ export async function claimReport(reportId: ObjectId) {
  *  error, admin force-reset). Progress RESETS — a requeued report must read
  *  as "will restart from scratch", never as a finished progress bar wearing
  *  a Waiting badge (the "bar hit 100% then it said queued" bug). The runId
- *  drops so the superseded run's writes stop matching immediately. */
-export function requeueReport(reportId: ObjectId, runId?: ObjectId) {
+ *  drops so the superseded run's writes stop matching immediately. `extra`
+ *  adds fields to the set (e.g. lastError / attempts on transient retries). */
+export function requeueReport(reportId: ObjectId, runId?: ObjectId, extra: Record<string, any> = {}) {
     return collReport.updateOne(
         ownedFilter(reportId, runId),
         {
-            $set: { status: 'waiting', lockedAt: new Date(), 'progress.processed': 0 },
+            $set: { status: 'waiting', lockedAt: new Date(), 'progress.processed': 0, ...extra },
             $unset: { runId: '' },
         },
     ).then((r) => r.modifiedCount === 1);
@@ -275,16 +283,26 @@ export function failReport(reportId: ObjectId, error: string, runId?: ObjectId) 
 export function finishReport(reportId: ObjectId, stats: ReportDoc['stats'], runId?: ObjectId) {
     return collReport.updateOne(
         ownedFilter(reportId, runId),
-        { $set: { status: 'done', stats, finishedAt: new Date() } },
+        { $set: { status: 'done', stats, finishedAt: new Date() }, $unset: { lastError: '' } },
     ).then((r) => r.modifiedCount === 1);
 }
 
-export function upsertFingerprint(fp: Omit<FingerprintDoc, '_id'>) {
-    return collFp.updateOne(
+export async function upsertFingerprint(fp: Omit<FingerprintDoc, '_id'>) {
+    const write = (upsert: boolean) => collFp.updateOne(
         { rid: fp.rid },
         { $set: { ...fp } },
-        { upsert: true },
-    ).then(() => { });
+        upsert ? { upsert: true } : undefined,
+    );
+    try {
+        await write(true);
+    } catch (e) {
+        // Two runs writing the same rid concurrently (a rescan started while
+        // the superseded run is still winding down) race on the unique rid
+        // index and the loser gets E11000. The doc exists now — converge with
+        // a plain update instead of failing the whole scan over the cache.
+        if (!/E11000|duplicate key/i.test(String((e as Error)?.message))) throw e;
+        await write(false);
+    }
 }
 
 export async function getFingerprintMap(rids: ObjectId[]) {
@@ -305,6 +323,44 @@ export function deleteContestData(domainId: string, tid: ObjectId) {
     return Promise.all([
         collPair.deleteMany({ domainId, tid }),
         collReport.deleteMany({ domainId, tid }),
+    ]);
+}
+
+/** Mark one report cancelled (admin queue cancel). Valid from BOTH waiting
+ *  and running: a live run re-checks ownership (status must be 'running') on
+ *  its next write, sees the mismatch and aborts itself. The doc is KEPT as a
+ *  tombstone — deleting it is what let the sweep resurrect the scan. */
+export function cancelReport(reportId: ObjectId) {
+    return collReport.updateOne(
+        { _id: reportId, status: { $in: ['waiting', 'running'] } },
+        { $set: { status: 'cancelled', finishedAt: new Date() }, $unset: { error: '', lastError: '' } },
+    ).then((r) => r.modifiedCount === 1);
+}
+
+/** Drop every pending sim task for a contest (scan + post-contest precheck).
+ *  Delete/cancel/rerun must remove these too, or a surviving task recreates
+ *  the work the admin just removed. */
+export function deleteContestTasks(domainId: string, tid: ObjectId) {
+    return ScheduleModel.deleteMany({
+        type: 'schedule', subType: { $in: ['sim.scan', 'sim.scan.precheck'] }, domainId, tid,
+    });
+}
+
+/** Admin "delete": wipe the pairs and mark every report CANCELLED instead of
+ *  deleting the docs. The cancelled reports are tombstones — the sweep
+ *  catch-up and the post-contest precheck both look for "a report already
+ *  exists" and skip the contest, so a deleted scan STAYS deleted. Deleting
+ *  the docs outright left the contest with zero reports, and the next sweep
+ *  pass (which fires right after every plugin update re-registers it)
+ *  recreated the whole scan from scratch. A manual "Scan" still works:
+ *  createReport only blocks on waiting/running. */
+export async function cancelContestData(domainId: string, tid: ObjectId) {
+    await Promise.all([
+        collPair.deleteMany({ domainId, tid }),
+        collReport.updateMany(
+            { domainId, tid, status: { $in: ['waiting', 'running', 'done', 'failed'] } },
+            { $set: { status: 'cancelled', finishedAt: new Date() }, $unset: { error: '', lastError: '' } },
+        ),
     ]);
 }
 

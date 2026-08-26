@@ -93,6 +93,8 @@
 'Running': 进行中
 'Done': 已完成
 'Failed': 失败
+'Cancelled': 已取消
+'This scan was cancelled or deleted by an administrator and will not restart automatically. Use "Scan now" to run it again.': 该扫描已被管理员取消或删除，不会自动重新运行；如需再次查重请点击「立即查重」。
 
 # levels
 'Identical': 完全相同
@@ -143,3 +145,4 @@
 'Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).': 收集到 0 份提交：没有任何提交记录属于该比赛。请确认比赛内确实有提交后重试（也可尝试「所有提交」模式）。
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.': 未发现相似对。查重只比较同题的不同用户；「每人每题取最后一次提交」模式只取每人每题的最后一次提交——如需要请用「所有提交」模式重扫或调低阈值。
 'Diagnostics': 诊断
+'Retrying after error': 出错后自动重试

@@ -18,8 +18,9 @@ import { diffCellLimit, fetchCode, readConfig, runDetection } from './detect';
 import { lineDiff, splitLines } from './lib/lcs';
 import type { PairDoc } from './model';
 import {
-    FP_SCHEMA, casStatus, claimReport, collFp, collPair, collReport, createReport,
-    deleteContestData, getActiveReport, getLatestReport, getLatestReportMap, requeueReport,
+    FP_SCHEMA, cancelContestData, cancelReport, casStatus, claimReport, collFp, collPair,
+    collReport, createReport, deleteContestData, deleteContestTasks, getActiveReport,
+    getLatestReport, getLatestReportMap, requeueReport,
 } from './model';
 
 const PAGE_SIZE = 50;
@@ -144,7 +145,9 @@ export class SimListHandler extends SimBaseHandler {
             title: r.title,
             status: r.status,
             progress: r.progress,
-            error: r.error,
+            // failed reports show their error; requeued waiting ones show the
+            // transient error that keeps requeueing them (lastError)
+            error: r.error || r.lastError || null,
             minutes: Math.max(0, Math.floor((now - r.createdAt.getTime()) / 60000)),
         }));
         this.response.template = 'sim_list.html';
@@ -191,12 +194,25 @@ export class SimListHandler extends SimBaseHandler {
         this.response.redirect = this.url('domain_sim_list');
     }
 
-    /** Drop a queued report and its pending task. */
+    /** Cancel a queued (or just-started) report. The report is MARKED
+     *  cancelled, not deleted: the doc stays as a tombstone the sweep and
+     *  precheck respect, so the scan cannot come back as a fresh task on the
+     *  next catch-up pass (it used to resurrect right after every plugin
+     *  update, when the sweep task is re-registered and fires). */
     @requireSudo
     @param('reportId', Types.ObjectId)
     async postQueueCancel(domainId: string, reportId: ObjectId) {
-        await ScheduleModel.deleteMany({ type: 'schedule', subType: 'sim.scan', reportId });
-        await collReport.deleteOne({ _id: reportId, domainId, status: 'waiting' });
+        const report = await collReport.findOne(
+            { _id: reportId, domainId },
+            { projection: { tid: 1, status: 1 } },
+        );
+        if (report && (report.status === 'waiting' || report.status === 'running')) {
+            await ScheduleModel.deleteMany({
+                type: 'schedule', subType: { $in: ['sim.scan', 'sim.scan.precheck'] }, domainId,
+                $or: [{ tid: report.tid }, { reportId }],
+            });
+            await cancelReport(reportId);
+        }
         this.response.redirect = this.url('domain_sim_list');
     }
 
@@ -325,6 +341,9 @@ export class SimDetailHandler extends SimBaseHandler {
         tIdentical = 0, tHigh = 0, tSuspected = 0,
     ) {
         await deleteContestData(domainId, tid);
+        // also drop any pending task of the report(s) just deleted, so a
+        // leftover sim.scan cannot fire at a gone report later
+        await deleteContestTasks(domainId, tid);
         await triggerScan(this.ctx, domainId, tid, mode === 'all' ? 'all' : 'latest', this.user._id, {
             identical: tIdentical, high: tHigh, suspected: tSuspected,
         });
@@ -345,10 +364,16 @@ export class SimDetailHandler extends SimBaseHandler {
         this.response.redirect = this.url('domain_sim_detail', { tid });
     }
 
+    /** Delete this contest's sim data. Reports are MARKED cancelled (tombstone)
+     *  instead of deleted and pending tasks are dropped: deleting the docs left
+     *  the contest with zero reports, and the sweep catch-up — which re-scans
+     *  every ended contest in the lookback window without a report — recreated
+     *  the whole thing minutes later ("delete didn't work"). */
     @requireSudo
     @param('tid', Types.ObjectId)
     async postDelete(domainId: string, tid: ObjectId) {
-        await deleteContestData(domainId, tid);
+        await deleteContestTasks(domainId, tid);
+        await cancelContestData(domainId, tid);
         this.response.redirect = this.url('domain_sim_list');
     }
 }
@@ -505,7 +530,9 @@ export class SimDebugHandler extends SimBaseHandler {
                 _id: String(r._id), status: r.status, mode: r.mode,
                 createdAt: r.createdAt, startedAt: r.startedAt, finishedAt: r.finishedAt,
                 lockedAt: r.lockedAt, progress: r.progress, stats: r.stats ?? null,
-                error: r.error ?? null, triggeredBy: r.triggeredBy, config: r.config,
+                error: r.error ?? null, lastError: r.lastError ?? null,
+                attempts: r.attempts ?? null, runId: r.runId ? String(r.runId) : null,
+                triggeredBy: r.triggeredBy, config: r.config,
             })),
             scheduleTasks: tasks.map((t) => ({
                 _id: String(t._id), subType: t.subType, executeAfter: t.executeAfter,

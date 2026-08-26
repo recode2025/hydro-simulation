@@ -90,6 +90,8 @@
 'Running': Running
 'Done': Done
 'Failed': Failed
+'Cancelled': Cancelled
+'This scan was cancelled or deleted by an administrator and will not restart automatically. Use "Scan now" to run it again.': This scan was cancelled or deleted by an administrator and will not restart automatically. Use "Scan now" to run it again.
 
 'Identical': Identical
 'High': High
@@ -135,3 +137,4 @@
 'Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).': 'Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).'
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.': 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.'
 'Diagnostics': Diagnostics
+'Retrying after error': Retrying after error

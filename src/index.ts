@@ -158,7 +158,11 @@ export default definePlugin({
                 try {
                     const tdoc = await ContestModel.get(domainId, tid);
                     if (!tdoc || !ContestModel.isDone(tdoc)) return; // extended: edit event rescheduled
-                    const existing = await collReport.findOne({ domainId, tid, status: { $in: ['waiting', 'running'] } });
+                    // 'cancelled' included: a cancelled report is a tombstone —
+                    // the admin removed this scan, precheck must not recreate it
+                    const existing = await collReport.findOne({
+                        domainId, tid, status: { $in: ['waiting', 'running', 'cancelled'] },
+                    });
                     if (existing) return;
                     const rdoc = await createReport({
                         domainId, tid,

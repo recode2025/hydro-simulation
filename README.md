@@ -55,7 +55,7 @@ hydrooj serve
 
 ## 数据模型
 
-- `sim.report`：一次扫描（waiting → running → done/failed，CAS 状态机 + lockedAt 心跳，僵死自动回收）
+- `sim.report`：一次扫描（waiting → running → done/failed，CAS 状态机 + lockedAt 心跳，僵死自动回收）。管理员删除/取消将报告标记为终态 `cancelled`（墓碑）并清理待执行任务——sweep 补扫和 precheck 看到墓碑即跳过，被删的扫描不会自动复活；手动「立即查重」不受影响
 - `sim.pair`：一对相似提交（level 1/2/3、similarity、双方 uid/rid、语言、题目）
 - `sim.fingerprint`：rid → k-gram 指纹缓存（BinData 4 字节/哈希），k 或代码变化才重算
 
