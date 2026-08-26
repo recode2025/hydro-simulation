@@ -156,3 +156,5 @@
 'Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.': 重新查重会清空本报告并从头重扫；删除会移除该比赛全部相似对与报告。
 'Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.': 移除该比赛的所有相似对、报告与自动扫描任务。比赛本身不受影响。
 'Delete ALL similarity pairs and reports of this contest? This cannot be undone.': 确定删除该比赛的全部相似对与报告？此操作不可撤销。
+'Uncheck metrics that saturate on trivial problems — keep only the discriminating ones. Your selection is remembered.': 简单题的函数/结构等指标人人趋同，可取消勾选、只保留有区分度的指标（选择会被记住）。
+'Failed to load graph data': 关系网数据加载失败

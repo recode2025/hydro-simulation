@@ -440,3 +440,55 @@ table.sim-diff { font-size: 12.5px; tab-size: 4; }
     .sim-diff-side--b { text-align: left; }
     .sim-diff-center { min-width: 0; }
 }
+
+/* ---- evidence metric picker (v5): trivial problems saturate Seq/TF-IDF/
+   Func/Struct for everyone, so each metric is individually hideable ---- */
+
+.sim-metricpick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 0 16px 12px;
+}
+
+.sim-metricpick--page { padding: 0 0 10px; }
+
+.sim-metricpick__chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border: 1px solid rgba(128, 128, 128, .3);
+    border-radius: 14px;
+    background: rgba(128, 128, 128, .05);
+    font-size: 12px;
+    line-height: 20px;
+    cursor: pointer;
+    user-select: none;
+    transition: opacity .12s ease, border-color .12s ease;
+}
+
+.sim-metricpick__chip:hover { border-color: rgba(64, 128, 255, .5); }
+
+.sim-metricpick__chip input { margin: 0 5px 0 0; accent-color: #4080ff; }
+
+/* unchecked = hidden everywhere on this page; dim the picker chip too */
+.sim-metricpick__chip.is-off { opacity: .45; }
+
+/* applies to table th/td and diff-page chips alike */
+.sim-col--off { display: none !important; }
+
+/* ---- roomier rows (v5): Hydro's data-table default is dense and the pair
+   table carries multi-line user cells with flags ---- */
+
+.sim-table th,
+.sim-table td {
+    padding: 9px 12px;
+    line-height: 1.5;
+}
+
+.sim-table .sim-flags { margin-top: 4px; }
+
+table.sim-diff { line-height: 1.6; }
+
+.sim-diff td { padding: 1px 8px; }

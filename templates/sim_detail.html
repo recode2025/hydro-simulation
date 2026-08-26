@@ -1,6 +1,6 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=4">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=5">
 <div class="section">
   <div class="section__header">
     <div>
@@ -256,30 +256,40 @@
             <option value="{{ p }}"{% if pid == p %} selected{% endif %}>#{{ p }} {{ pdict[p].title|default('') }}</option>
           {%- endfor -%}
         </select>
-        <input type="text" class="inline compact textbox" name="user" value="{{ user }}" placeholder="{{ _('Filter by user (name or ID)') }}">
+        <input type="text" class="inline compact textbox" name="user" value="{{ userFilter }}" placeholder="{{ _('Filter by user (name or ID)') }}">
         <button type="submit" class="button hasjs--hide">{{ _('Filter') }}</button>
       </form>
     </div>
   </div>
   <div class="section__body no-padding">
-  {% if user and not filterUdoc %}
-    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain:') }} {{ user }}</p>
+  {% if userFilter and not filterUdoc %}
+    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain:') }} {{ userFilter }}</p>
   {% endif %}
   {% if not pairs.length %}
     {{ nothing.render('No similar pair found...') }}
   {% else %}
+   <div class="sim-metricpick">
+     <span class="supplementary">{{ _('Evidence metrics') }}</span>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="seq"><span title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</span></label>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="tfidf"><span title="{{ _('TF-IDF similarity') }}">TF-IDF</span></label>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="var"><span title="{{ _('Variable name similarity') }}">{{ _('Var') }}</span></label>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="func"><span title="{{ _('Function similarity') }}">{{ _('Func') }}</span></label>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="struct"><span title="{{ _('Structure similarity') }}">{{ _('Struct') }}</span></label>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="comments"><span title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }}</span></label>
+     <span class="supplementary sim-metricpick__tip">{{ _('Uncheck metrics that saturate on trivial problems — keep only the discriminating ones. Your selection is remembered.') }}</span>
+   </div>
    <div class="sim-scroll">
     <table class="data-table sim-table">
       <thead>
         <tr>
           <th>{{ _('Level') }}</th>
           <th title="{{ _('Sørensen–Dice over k-gram fingerprints — decides the level') }}">{{ _('Similarity') }}</th>
-          <th title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</th>
-          <th title="{{ _('TF-IDF similarity') }}">TF-IDF</th>
-          <th title="{{ _('Variable name similarity') }}">{{ _('Var') }}</th>
-          <th title="{{ _('Function similarity') }}">{{ _('Func') }}</th>
-          <th title="{{ _('Structure similarity') }}">{{ _('Struct') }}</th>
-          <th title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }}</th>
+          <th data-m="seq" title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</th>
+          <th data-m="tfidf" title="{{ _('TF-IDF similarity') }}">TF-IDF</th>
+          <th data-m="var" title="{{ _('Variable name similarity') }}">{{ _('Var') }}</th>
+          <th data-m="func" title="{{ _('Function similarity') }}">{{ _('Func') }}</th>
+          <th data-m="struct" title="{{ _('Structure similarity') }}">{{ _('Struct') }}</th>
+          <th data-m="comments" title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }}</th>
           <th>{{ _('User') }} 1</th>
           <th>{{ _('User') }} 2</th>
           <th>{{ _('Problem') }}</th>
@@ -297,12 +307,12 @@
             {% else %}<span class="sim-badge sim-badge--1">{{ _('Suspected') }}</span>{% endif %}
           </td>
           <td class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</td>
-          <td class="sim-m sim-m--{{ row.seqH }}">{{ row.seqD if row.seqD != null else '—' }}</td>
-          <td class="sim-m sim-m--{{ row.tfidfH }}">{{ row.tfidfD if row.tfidfD != null else '—' }}</td>
-          <td class="sim-m sim-m--{{ row.varH }}">{{ row.varD if row.varD != null else '—' }}</td>
-          <td class="sim-m sim-m--{{ row.funcH }}">{{ row.funcD if row.funcD != null else '—' }}</td>
-          <td class="sim-m sim-m--{{ row.structH }}">{{ row.structD if row.structD != null else '—' }}</td>
-          <td class="sim-m{% if pair.sharedComments %} sim-m--high{% endif %}">{{ pair.sharedComments if pair.sharedComments != null else '—' }}</td>
+          <td data-m="seq" class="sim-m sim-m--{{ row.seqH }}">{{ row.seqD if row.seqD != null else '—' }}</td>
+          <td data-m="tfidf" class="sim-m sim-m--{{ row.tfidfH }}">{{ row.tfidfD if row.tfidfD != null else '—' }}</td>
+          <td data-m="var" class="sim-m sim-m--{{ row.varH }}">{{ row.varD if row.varD != null else '—' }}</td>
+          <td data-m="func" class="sim-m sim-m--{{ row.funcH }}">{{ row.funcD if row.funcD != null else '—' }}</td>
+          <td data-m="struct" class="sim-m sim-m--{{ row.structH }}">{{ row.structD if row.structD != null else '—' }}</td>
+          <td data-m="comments" class="sim-m{% if pair.sharedComments %} sim-m--high{% endif %}">{{ pair.sharedComments if pair.sharedComments != null else '—' }}</td>
           <td>
             {% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}
             <a class="supplementary" href="{{ urlRecord(pair.rid1) }}">#{{ pair.rid1.toString().slice(-6) }}</a>
@@ -430,5 +440,6 @@
   setInterval(poll, 3000);
 })();
 </script>
+<script src="{{ UiContext.cdn_prefix }}sim/evmetrics.js?v=5" defer></script>
 {% endif %}
 {% endblock %}

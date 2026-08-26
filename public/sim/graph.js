@@ -34,14 +34,20 @@
         var tooltip = container.querySelector('[data-sim-tooltip]');
         var emptyBox = container.querySelector('[data-sim-empty]');
         var statEl = document.querySelector('[data-sim-stat]');
+        var failMsg = container.getAttribute('data-msg-fail') || 'Failed to load graph data';
         fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'level=1')
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function (payload) {
                 if (!payload || !payload.nodes) throw new Error('bad payload');
                 new GraphView(container, canvas, tooltip, emptyBox, statEl, payload);
             })
             .catch(function (e) {
-                emptyBox.textContent = String(e && e.message ? e.message : e);
+                // localized headline + raw detail, so a failed fetch can never
+                // masquerade as "no pairs"
+                emptyBox.textContent = failMsg + ' — ' + String(e && e.message ? e.message : e);
                 emptyBox.hidden = false;
             });
     }

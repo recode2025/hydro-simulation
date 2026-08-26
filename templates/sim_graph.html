@@ -1,6 +1,6 @@
 {% extends "layout/basic.html" %}
 {% block content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/graph.css">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/graph.css?v=5">
 <div class="section sim-graph-page">
   <div class="section__header">
     <h1 class="section__title" data-heading>
@@ -20,7 +20,8 @@
     <span class="supplementary sim-graph-stat" data-sim-stat></span>
   </div>
   <div class="section__body no-padding sim-graph-container" data-sim-graph
-       data-url="{{ apiUrl }}" data-level="{{ level }}">
+       data-url="{{ apiUrl }}" data-level="{{ level }}"
+       data-msg-fail="{{ _('Failed to load graph data') }}">
     <canvas class="sim-graph-canvas"></canvas>
     <div class="sim-graph-tooltip" data-sim-tooltip hidden></div>
     <div class="sim-graph-empty" data-sim-empty hidden>{{ _('No similar pair to display') }}</div>
@@ -28,5 +29,5 @@
 </div>
 {% endblock %}
 {% block script %}
-<script src="{{ UiContext.cdn_prefix }}sim/graph.js" defer></script>
+<script src="{{ UiContext.cdn_prefix }}sim/graph.js?v=5" defer></script>
 {% endblock %}

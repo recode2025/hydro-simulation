@@ -148,3 +148,5 @@
 'Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.': Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.
 'Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.': Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.
 'Delete ALL similarity pairs and reports of this contest? This cannot be undone.': Delete ALL similarity pairs and reports of this contest? This cannot be undone.
+'Uncheck metrics that saturate on trivial problems — keep only the discriminating ones. Your selection is remembered.': Uncheck metrics that saturate on trivial problems — keep only the discriminating ones. Your selection is remembered.
+'Failed to load graph data': Failed to load graph data

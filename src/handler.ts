@@ -372,7 +372,10 @@ export class SimDetailHandler extends SimBaseHandler {
         this.response.body = {
             tdoc, report, pairs: rows, page, tpcount, udict, pdict,
             level: String(minLevel), pid: pid || 0,
-            user, filterUdoc, userSummary,
+            // NOT "user": that name collides with the template-global user
+            // view helper (an object), which shadowed it and rendered
+            // "[object Object]" into the filter box
+            userFilter: user, filterUdoc, userSummary,
             minLevels: [1, 2, 3],
             thresholds: report?.config?.thresholds || readConfig(this.ctx).thresholds,
             urlDiff: (pair: PairDoc) => this.url('domain_sim_diff', { tid, pairId: pair._id }),
