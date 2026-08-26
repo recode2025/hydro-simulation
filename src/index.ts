@@ -128,6 +128,7 @@ export default definePlugin({
 
             // hourly sweep: crashed-run recovery + catch-up for missed triggers
             c.worker.addHandler('sim.sweep', async () => {
+              try {
                 const cfg = readConfig(c);
                 if (!cfg.autoScan) return;
                 const now = Date.now();
@@ -189,6 +190,12 @@ export default definePlugin({
                         }
                     }
                 }
+              } catch (e) {
+                // transient (e.g. mongo blip): log and let the next hourly
+                // sweep retry — never crash the worker loop
+                c.logger.error('sim.sweep failed');
+                c.logger.error(e);
+              }
             });
         });
 

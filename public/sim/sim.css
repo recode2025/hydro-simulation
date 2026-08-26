@@ -1,5 +1,77 @@
 /* hydrooj-similarity shared styles (list / detail / diff pages) */
 
+/* ---- stat cards (report detail) ---- */
+
+.sim-statcards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.sim-statcard {
+    flex: 1 1 110px;
+    min-width: 100px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(128, 128, 128, .22);
+    background: rgba(128, 128, 128, .04);
+    text-align: center;
+}
+
+.sim-statcard__num {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.sim-statcard__label {
+    font-size: 12px;
+    color: rgba(128, 128, 128, .95);
+    margin-top: 2px;
+}
+
+.sim-statcard--1 { border-color: rgba(242, 181, 68, .55); background: rgba(242, 181, 68, .08); }
+.sim-statcard--1 .sim-statcard__num { color: #b07500; }
+.sim-statcard--2 { border-color: rgba(240, 120, 60, .55); background: rgba(240, 120, 60, .08); }
+.sim-statcard--2 .sim-statcard__num { color: #c4500c; }
+.sim-statcard--3 { border-color: rgba(224, 32, 32, .45); background: rgba(224, 32, 32, .07); }
+.sim-statcard--3 .sim-statcard__num { color: #c01010; }
+.sim-statcard--muted .sim-statcard__num { color: rgba(128, 128, 128, .95); }
+
+.sim-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 13px;
+    color: rgba(128, 128, 128, .95);
+}
+
+/* ---- scan form ---- */
+
+.sim-runform__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 6px 0;
+}
+
+.sim-runform__label {
+    min-width: 56px;
+    color: rgba(128, 128, 128, .95);
+    font-size: 13px;
+}
+
+.sim-toolbar {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.sim-btn--danger { color: #c01010; }
+
 .sim-badge {
     display: inline-block;
     padding: 1px 8px;
@@ -23,25 +95,42 @@
 .sim-sim--2 { color: #c4500c; font-weight: 600; }
 .sim-sim--3 { color: #c01010; font-weight: 700; }
 
-.sim-table__actions { white-space: nowrap; }
-.sim-table__actions .button { margin-right: 4px; }
-.sim-inline-form { display: inline-block; margin: 2px 4px 2px 0; }
+.sim-table__actions .button { margin: 2px 4px 2px 0; }
+.sim-table tbody tr:hover { background: rgba(128, 128, 128, .05); }
+.sim-cell--title a { font-weight: 500; }
+.sim-inline-form {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin: 2px 4px 2px 0;
+}
+/* inside table cells each form occupies its own row and wraps its controls */
+.sim-table__actions .sim-inline-form { display: flex; margin-right: 0; }
 .sim-nowrap { white-space: nowrap; }
 
-.sim-th-inputs { white-space: nowrap; }
-.sim-th-inputs span { margin: 0 2px 0 6px; }
+.sim-th-inputs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 4px;
+}
+.sim-th-inputs span { margin: 0; }
 .sim-input-num { width: 64px; padding: 2px 4px; text-align: center; }
 
 .sim-stats dt { min-width: 140px; }
 
-/* horizontal scroll: wide tables scroll inside the section instead of
-   overflowing the panel on narrow screens */
+/* horizontal scroll fallback: content wraps by default (see forms above), so
+   this only kicks in on very narrow screens */
 .sim-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
 
-.sim-scroll .sim-table { min-width: 760px; }
+.sim-scroll .sim-table {
+    min-width: 480px;
+    table-layout: auto;
+}
 
 /* ---- side-by-side diff ---- */
 

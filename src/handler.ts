@@ -113,10 +113,13 @@ export class SimListHandler extends SimBaseHandler {
     @param('tHigh', Types.Float, true)
     @param('tSuspected', Types.Float, true)
     async postRun(
-        domainId: string, tid: ObjectId, mode = 'latest',
+        domainId: string, tid: ObjectId, mode = '',
         tIdentical = 0, tHigh = 0, tSuspected = 0,
     ) {
-        await triggerScan(this.ctx, domainId, tid, mode === 'all' ? 'all' : 'latest', this.user._id, {
+        // quick-scan posts no mode: fall back to the configured default
+        const cfgMode = readConfig(this.ctx).mode;
+        const m = mode === 'all' || mode === 'latest' ? mode : cfgMode;
+        await triggerScan(this.ctx, domainId, tid, m, this.user._id, {
             identical: tIdentical, high: tHigh, suspected: tSuspected,
         });
         this.response.redirect = this.url('domain_sim_detail', { tid });

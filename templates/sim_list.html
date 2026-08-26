@@ -5,7 +5,7 @@
   <div class="section__header">
     <h1 class="section__title" data-heading>{{ _('Code Similarity Detection') }}</h1>
     <div class="section__tools">
-      <form method="get" name="scope-form">
+      <form method="get" name="scope-form" class="sim-toolbar">
         <select class="inline compact select" name="scope">
           <option value="both"{% if scope == 'both' %} selected{% endif %}>{{ _('Contests & Homework') }}</option>
           <option value="contest"{% if scope == 'contest' %} selected{% endif %}>{{ _('Contests only') }}</option>
@@ -23,10 +23,10 @@
     <table class="data-table sim-table">
       <thead>
         <tr>
-          <th>{{ _('Title') }}</th>
-          <th>{{ _('Rule') }}</th>
+          <th>{{ _('Contest') }}</th>
           <th>{{ _('End at') }}</th>
-          <th>{{ _('Report') }}</th>
+          <th>{{ _('Status') }}</th>
+          <th>{{ _('Result') }}</th>
           <th class="sim-table__actions">{{ _('Operations') }}</th>
         </tr>
       </thead>
@@ -36,9 +36,11 @@
         {% set report = reports[rid] %}
         <tr>
           <td>
-            <a href="{{ urlContest(tdoc.docId) if not isHomework(tdoc) else urlHomework(tdoc.docId) }}">{{ tdoc.title }}</a>
+            <div class="sim-cell--title">
+              <a href="{{ urlContest(tdoc.docId) if not isHomework(tdoc) else urlHomework(tdoc.docId) }}">{{ tdoc.title }}</a>
+            </div>
+            <div class="supplementary">{{ _('Homework') if isHomework(tdoc) else _(model.contest.RULES[tdoc['rule']].TEXT) }}</div>
           </td>
-          <td>{{ _('Homework') if isHomework(tdoc) else _(model.contest.RULES[tdoc['rule']].TEXT) }}</td>
           <td class="sim-nowrap">{{ datetimeSpan(tdoc['endAt'], false, 'YYYY-MM-DD HH:mm')|safe }}</td>
           <td>
             {% if not report %}
@@ -51,39 +53,36 @@
               <span class="sim-badge sim-badge--failed" title="{{ report.error }}">{{ _('Failed') }}</span>
             {% else %}
               <span class="sim-badge sim-badge--done">{{ _('Done') }}</span>
-              <span class="supplementary">
-                {{ _('Identical') }}:{{ report.stats.l3 }} · {{ _('High') }}:{{ report.stats.l2 }} · {{ _('Suspected') }}:{{ report.stats.l1 }}
-              </span>
+            {% endif %}
+          </td>
+          <td class="sim-nowrap">
+            {% if report and report.status == 'done' %}
+              <span class="sim-badge sim-badge--3" title="{{ _('Identical') }}">{{ report.stats.l3 }}</span>
+              <span class="sim-badge sim-badge--2" title="{{ _('High') }}">{{ report.stats.l2 }}</span>
+              <span class="sim-badge sim-badge--1" title="{{ _('Suspected') }}">{{ report.stats.l1 }}</span>
+            {% else %}
+              <span class="supplementary">—</span>
             {% endif %}
           </td>
           <td class="sim-table__actions">
+            <a class="rounded button" href="{{ url('domain_sim_detail', tid=tdoc.docId) }}">{{ _('Details') }}</a>
             {% if report and report.status == 'done' %}
-              <a class="rounded button" href="{{ url('domain_sim_detail', tid=tdoc.docId) }}">{{ _('Report') }}</a>
               <a class="rounded button" href="{{ url('domain_sim_graph', tid=tdoc.docId) }}">{{ _('Network') }}</a>
             {% endif %}
             {% if model.contest.isDone(tdoc) %}
             <form method="post" class="sim-inline-form">
               <input type="hidden" name="operation" value="run">
               <input type="hidden" name="tid" value="{{ tdoc.docId }}">
-              <select class="inline compact select" name="mode">
-                <option value="latest">{{ _('Latest per user') }}</option>
-                <option value="all">{{ _('All submissions') }}</option>
-              </select>
-              <span class="supplementary sim-th-inputs" title="{{ _('Similarity thresholds (leave defaults if unsure)') }}">
-                <span title="{{ _('Identical threshold') }}">{{ _('Identical') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tIdentical" step="0.05" min="0.05" max="1" value="{{ thresholds.identical }}">
-                <span title="{{ _('High threshold') }}">{{ _('High') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tHigh" step="0.05" min="0.05" max="1" value="{{ thresholds.high }}">
-                <span title="{{ _('Suspected threshold') }}">{{ _('Suspected') }}≥</span><input type="number" class="inline compact textbox sim-input-num" name="tSuspected" step="0.05" min="0.05" max="1" value="{{ thresholds.suspected }}">
-              </span>
               <button type="submit" class="primary rounded button">{{ _('Scan') if not report else _('Scan again') }}</button>
             </form>
-            {% else %}
+            {% elif not report %}
               <span class="supplementary">{{ _('Not ended yet') }}</span>
             {% endif %}
             {% if report %}
             <form method="post" class="sim-inline-form">
               <input type="hidden" name="operation" value="delete">
               <input type="hidden" name="tid" value="{{ tdoc.docId }}">
-              <button type="submit" class="rounded button">{{ _('Delete report') }}</button>
+              <button type="submit" class="rounded button sim-btn--danger">{{ _('Delete') }}</button>
             </form>
             {% endif %}
           </td>

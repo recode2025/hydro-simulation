@@ -14,7 +14,7 @@
  * batches so HTTP/judge traffic on the same process stays healthy.
  */
 
-import { ContestModel, RecordModel, StorageModel } from 'hydrooj';
+import { ContestModel, RecordModel, ScheduleModel, StorageModel } from 'hydrooj';
 import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
 import { classify, diceCoeff } from './lib/dice';
@@ -22,7 +22,11 @@ import type { Thresholds } from './lib/dice';
 import { codeHash, dedupSorted, fnv32a, kgramHashes, pack, unpack } from './lib/fingerprint';
 import { langFamily, tokenText, tokenize } from './lib/tokenizer';
 import type { PairDoc, ReportDoc } from './model';
-import { collReport, failReport, finishReport, getFingerprintMap, heartbeat, insertPairs, setProgress, upsertFingerprint } from './model';
+import {
+    collPair, collReport, failReport, finishReport, getFingerprintMap, heartbeat,
+    insertPairs, isTransientDbError, setProgress, upsertFingerprint,
+} from './model';
+import { casStatus } from './model';
 
 export interface DetectConfig {
     k: number;
@@ -148,6 +152,10 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         const { domainId, tid } = report;
         const tdoc = await ContestModel.get(domainId, tid);
         if (!ContestModel.isDone(tdoc)) throw new Error('contest not ended');
+
+        // idempotent reruns: a requeued/recovered rerun of THIS report must not
+        // duplicate pairs inserted by the previous attempt
+        await collPair.deleteMany({ reportId });
 
         // ---- collect target rdocs, grouped by pid ----
         const byPid = new Map<number, any[]>();
@@ -300,7 +308,25 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
     } catch (e) {
         ctx.logger.error('sim.scan failed for report %s', reportId.toHexString());
         ctx.logger.error(e);
-        await failReport(reportId, String(e));
+        if (isTransientDbError(e)) {
+            // mongo blip (restart / network): do NOT permanently fail the
+            // report — put it back to waiting and requeue a retry
+            try {
+                await casStatus(reportId, 'running', 'waiting');
+                await ScheduleModel.add({
+                    type: 'schedule', subType: 'sim.scan',
+                    domainId: report.domainId, tid: report.tid, reportId,
+                    executeAfter: new Date(Date.now() + 60_000),
+                });
+                ctx.logger.info('sim.scan %s requeued after transient db error', reportId.toHexString());
+                return;
+            } catch (e2) {
+                ctx.logger.error(e2);
+            }
+        }
+        try {
+            await failReport(reportId, String(e));
+        } catch { /* db unavailable — hourly sweep recovery will pick it up */ }
     }
 }
 

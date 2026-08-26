@@ -11,11 +11,18 @@
 'Contests & Homework': Contests & Homework
 'Contests only': Contests only
 'Homework only': Homework only
+'Contest': Contest
+'End at': End at
+'Status': Status
+'Result': Result
+'Operations': Operations
 'Not scanned': Not scanned
 'Not ended yet': Not ended yet
 'Scan': Scan
 'Scan again': Scan again
+'Delete': Delete
 'Delete report': Delete report
+'Details': Details
 'Network': Network
 
 'Similarity Report': Similarity Report

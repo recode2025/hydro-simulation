@@ -12,11 +12,18 @@
 'Contests & Homework': 比赛 + 作业
 'Contests only': 仅比赛
 'Homework only': 仅作业
+'Contest': 比赛
+'End at': 结束时间
+'Status': 状态
+'Result': 结果
+'Operations': 操作
 'Not scanned': 未查重
 'Not ended yet': 尚未结束
 'Scan': 立即查重
 'Scan again': 再次查重
+'Delete': 删除
 'Delete report': 删除报告
+'Details': 详情
 'Network': 关系网
 
 # detail page

@@ -82,6 +82,16 @@ const collFp = lazyColl<FingerprintDoc>('sim.fingerprint');
 
 export { collPair, collFp, collReport };
 
+/**
+ * True for driver errors meaning "db briefly unavailable" (mongod restarting,
+ * network blip, client closing). These are transient: callers should retry /
+ * requeue instead of permanently failing a report.
+ */
+export function isTransientDbError(e: unknown): boolean {
+    const s = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    return /MongoNotConnected|must be connected|MongoNetwork|MongoTimeout|TopologyClosed|ServerSelection|pool destroyed/i.test(s);
+}
+
 export async function ensureIndexes(ctx: Context) {
     await ctx.db.ensureIndexes(
         collFp as any,
