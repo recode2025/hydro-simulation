@@ -152,6 +152,22 @@ export function isTransientDbError(e: unknown): boolean {
     return /MongoNotConnected|must be connected|MongoNetwork|MongoTimeout|TopologyClosed|ServerSelection|pool destroyed/i.test(s);
 }
 
+/** Revive the shared MongoClient with ONE plain CRUD read. The driver treats
+ *  plain ops and bulk ops differently on a client whose topology is gone
+ *  (closed during a service reload / deploy window):
+ *   - plain ops go through executeOperation(), which calls autoConnect() and
+ *     RECONNECTS the client transparently — which is why claim / progress /
+ *     requeue writes kept succeeding in the very same second bulk ops failed;
+ *   - bulk ops (insertMany) construct their BulkOperation synchronously via
+ *     getTopology(), which throws MongoNotConnectedError instantly — the
+ *     driver never reconnects them, so retrying a bulk op against a dead
+ *     client fails in 0ms no matter how long the backoff sleeps.
+ *  Poking once lets autoConnect rebuild the topology; the retried bulk op
+ *  then proceeds normally. */
+async function pokeConnection() {
+    await collReport.findOne({}, { projection: { _id: 1 } }).catch(() => { });
+}
+
 /** Run a db write, retrying TRANSIENT failures (mongo restart window, network
  *  blip). Sub-second topology drops — the exact signature of an instance
  *  restart — are usually gone by the next operation (the requeue writes after
@@ -175,6 +191,10 @@ async function withTransientRetry<T>(
             return await fn();
         } catch (e) {
             if (i >= tries - 1 || !isTransientDbError(e)) throw e;
+            // heal the client BEFORE waiting: a bulk op cannot auto-connect
+            // (see pokeConnection) — without this poke the retry throws again
+            // instantly and the backoff sleeps are wasted
+            await pokeConnection();
             await new Promise((r) => setTimeout(r, Math.min(delayMs * 2 ** i, 8000)));
             if (onRetry) await onRetry();
         }
