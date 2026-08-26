@@ -29,6 +29,7 @@ export interface ReportDoc {
     stats?: {
         users: number; submissions: number; skipped: number;
         pairs: number; l1: number; l2: number; l3: number;
+        skippedShort?: number; skippedBig?: number; skippedEmpty?: number;
     };
     mode: 'latest' | 'all';
     config: { k: number; minTokens: number; thresholds: { identical: number; high: number; suspected: number } };
@@ -159,20 +160,22 @@ export function heartbeat(reportId: ObjectId) {
 export function setProgress(reportId: ObjectId, processed: number, total: number) {
     return collReport.updateOne(
         { _id: reportId, status: 'running' },
-        { $set: { 'progress.processed': processed, 'progress.total': total } },
+        { $set: { 'progress.processed': processed, 'progress.total': total, lockedAt: new Date() } },
     ).then(() => { });
 }
 
 export function failReport(reportId: ObjectId, error: string) {
     return collReport.updateOne(
-        { _id: reportId },
+        // status precondition: a zombie run (superseded by a requeued one)
+        // must not overwrite the new run's state
+        { _id: reportId, status: 'running' },
         { $set: { status: 'failed', error, finishedAt: new Date() } },
     ).then(() => { });
 }
 
 export function finishReport(reportId: ObjectId, stats: ReportDoc['stats']) {
     return collReport.updateOne(
-        { _id: reportId },
+        { _id: reportId, status: 'running' },
         { $set: { status: 'done', stats, finishedAt: new Date() } },
     ).then(() => { });
 }

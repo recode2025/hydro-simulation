@@ -49,7 +49,7 @@ const DEFAULTS = {
     'sim.threshold.high': 0.75,
     'sim.threshold.suspected': 0.55,
     'sim.kgram': 8,
-    'sim.minTokens': 40,
+    'sim.minTokens': 30,
     'sim.maxCodeSize': 131072,
     'sim.submissionMode': 'latest',
     'sim.scope': 'both',
@@ -145,7 +145,10 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         mode: report.mode,
         thresholds: report.config.thresholds,
     };
-    const stats = { users: 0, submissions: 0, skipped: 0, pairs: 0, l1: 0, l2: 0, l3: 0 };
+    const stats = {
+        users: 0, submissions: 0, skipped: 0, pairs: 0, l1: 0, l2: 0, l3: 0,
+        skippedShort: 0, skippedBig: 0, skippedEmpty: 0,
+    };
     let pairCapLogged = false;
     const uids = new Set<number>();
     try {
@@ -187,6 +190,14 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         }
 
         const pids = Array.from(byPid.keys());
+        if (!pids.length) {
+            // nothing collected: nearly always means the rid extraction found
+            // no scoring submissions — log loudly so "no results" is debuggable
+            ctx.logger.warn(
+                'sim.scan %s: 0 submissions collected (mode=%s) — no tsdoc.detail rids matched any record',
+                tid.toHexString(), cfg.mode,
+            );
+        }
         await setProgress(reportId, 0, pids.length);
         const pairDocs: Omit<PairDoc, '_id'>[] = [];
 
@@ -208,12 +219,19 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                     tokenCount = cached.tokenCount;
                 } else {
                     const code = await fetchCode(rdoc);
-                    if (!code || code.length > cfg.maxCodeSize) {
+                    if (!code) {
+                        stats.skippedEmpty++;
+                        stats.skipped++;
+                        continue;
+                    }
+                    if (code.length > cfg.maxCodeSize) {
+                        stats.skippedBig++;
                         stats.skipped++;
                         continue;
                     }
                     const tokens = tokenize(code, langFamily(rdoc.lang));
                     if (tokens.length < cfg.minTokens) {
+                        stats.skippedShort++;
                         stats.skipped++;
                         continue;
                     }
@@ -295,6 +313,13 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                     }
                 }
                 await yieldLoop();
+                // heartbeat here too: a long pairwise phase with no lockedAt
+                // refresh made the sweep mistake the scan for a dead one and
+                // flip it back to "waiting" mid-run
+                if (Date.now() - lastBeat > 25_000) {
+                    lastBeat = Date.now();
+                    await heartbeat(reportId);
+                }
             }
             await setProgress(reportId, pi + 1, pids.length);
             if (pairDocs.length >= 2000) {
@@ -304,7 +329,11 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         if (pairDocs.length) await insertPairs(pairDocs);
         stats.users = uids.size;
         await finishReport(reportId, stats);
-        ctx.logger.info('sim.scan done %s/%s in %dms, %d pairs', report.domainId, report.tid.toHexString(), Date.now() - startedAt, stats.pairs);
+        ctx.logger.info(
+            'sim.scan done %s/%s in %dms, %d pairs (subs=%d skipped: short=%d big=%d empty=%d)',
+            report.domainId, report.tid.toHexString(), Date.now() - startedAt, stats.pairs,
+            stats.submissions, stats.skippedShort, stats.skippedBig, stats.skippedEmpty,
+        );
     } catch (e) {
         ctx.logger.error('sim.scan failed for report %s', reportId.toHexString());
         ctx.logger.error(e);

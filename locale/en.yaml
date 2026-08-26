@@ -43,6 +43,11 @@
 'Finished at': Finished at
 'Problem': Problem
 'This contest has not been scanned yet.': This contest has not been scanned yet.
+'Short': Short
+'Large': Large
+'Empty': Empty
+'Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.': Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.
+'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.': No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.
 'The scan is queued and will run soon.': The scan is queued and will run soon.
 'Scan is in progress; refresh this page later.': Scan is in progress; refresh this page later.
 'The scan failed: {0}': 'The scan failed: {0}'

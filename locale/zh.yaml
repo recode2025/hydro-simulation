@@ -46,6 +46,11 @@
 'Finished at': 完成时间
 'Problem': 题目
 'This contest has not been scanned yet.': 该比赛尚未查重。
+'Short': 过短
+'Large': 超大
+'Empty': 空代码
+'Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.': 被跳过的提交不参与比对（过短 / 超大 / 空代码）。要捕捉小段测试代码可在系统设置调低 sim.minTokens。
+'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.': 未发现相似对。查重只在同题的不同用户之间比对；「每人最后一次」模式只取每人每题的最后一次提交——如需全量比对请用「所有提交」模式重新查重。
 'The scan is queued and will run soon.': 查重任务已排队，稍后自动执行。
 'Scan is in progress; refresh this page later.': 查重进行中，请稍后刷新本页。
 'The scan failed: {0}': 查重失败：{0}

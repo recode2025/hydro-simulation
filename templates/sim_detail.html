@@ -88,12 +88,22 @@
         <div class="sim-statcard__label">{{ _('Submissions scanned') }}</div>
       </div>
       {% if report.stats.skipped %}
-      <div class="sim-statcard sim-statcard--muted">
+      <div class="sim-statcard sim-statcard--muted" title="{{ _('Short') }}: {{ report.stats.skippedShort|default(0) }} · {{ _('Large') }}: {{ report.stats.skippedBig|default(0) }} · {{ _('Empty') }}: {{ report.stats.skippedEmpty|default(0) }}">
         <div class="sim-statcard__num">{{ report.stats.skipped }}</div>
         <div class="sim-statcard__label">{{ _('skipped') }}</div>
       </div>
       {% endif %}
     </div>
+    {% if report.stats.skipped %}
+    <div class="supplementary sim-hint">
+      {{ _('Skipped submissions are excluded from comparison (too short / too large / empty code). Lower sim.minTokens in system settings to catch small snippets.') }}
+    </div>
+    {% endif %}
+    {% if not report.stats.l1 and not report.stats.l2 and not report.stats.l3 %}
+    <div class="supplementary sim-hint">
+      {{ _('No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" if needed.') }}
+    </div>
+    {% endif %}
     <div class="sim-meta">
       <span>{{ _('Mode') }}: <strong>{{ _('Latest per user') if report.mode == 'latest' else _('All submissions') }}</strong></span>
       <span>{{ _('Thresholds') }}:

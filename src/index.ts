@@ -28,7 +28,7 @@ const SETTINGS = [
     Setting(FAMILY, 'sim.threshold.high', 0.75, 'float', 'sim.threshold.high', ''),
     Setting(FAMILY, 'sim.threshold.suspected', 0.55, 'float', 'sim.threshold.suspected', ''),
     Setting(FAMILY, 'sim.kgram', 8, 'number', 'sim.kgram', ''),
-    Setting(FAMILY, 'sim.minTokens', 40, 'number', 'sim.minTokens', ''),
+    Setting(FAMILY, 'sim.minTokens', 30, 'number', 'sim.minTokens', ''),
     Setting(FAMILY, 'sim.maxCodeSize', 131072, 'number', 'sim.maxCodeSize', ''),
     Setting(FAMILY, 'sim.submissionMode', 'latest',
         [['latest', 'sim_mode_latest'], ['all', 'sim_mode_all']] as [string, string][],
