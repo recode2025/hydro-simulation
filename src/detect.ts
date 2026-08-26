@@ -29,7 +29,7 @@ import {
     funcSimilarity, round4, seqSimilarity, sharedCommentCount, structSimilarity,
     tfidfSimilarity, varSimilarity,
 } from './lib/metrics';
-import type { PairDoc, ReportDoc } from './model';
+import type { FingerprintDoc, PairDoc, ReportDoc } from './model';
 import {
     FP_SCHEMA, collPair, collReport, failReport, finishReport, getFingerprintMap, heartbeat,
     insertPairs, isTransientDbError, requeueReport, setProgress, upsertFingerprint,
@@ -50,6 +50,14 @@ export interface DetectConfig {
     maxCodeSize: number;
     mode: 'latest' | 'all';
     thresholds: Thresholds;
+    /** skip the fingerprint cache: refetch code and recompute every
+     *  fingerprint from source. Results are identical (records are
+     *  immutable) but the run costs full compute — the admin-facing
+     *  "I don't trust the cache" switch. */
+    ignoreCache?: boolean;
+    /** problem ids excluded from comparison entirely (trivial problems
+     *  where similar solutions are expected and only add noise). */
+    excludePids?: number[];
 }
 
 export interface SweepConfig extends DetectConfig {
@@ -187,6 +195,8 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
     const cfg: DetectConfig = {
         k: report.config.k,
         minTokens: report.config.minTokens,
+        ignoreCache: report.config.ignoreCache,
+        excludePids: report.config.excludePids,
         maxCodeSize: live.maxCodeSize,
         mode: report.mode,
         thresholds: report.config.thresholds,
@@ -241,7 +251,15 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             }
         }
 
-        const pids = Array.from(byPid.keys());
+        let pids = Array.from(byPid.keys());
+        // admin-excluded problems (trivial problems where everyone's solution
+        // looks alike): drop them from the scan entirely BEFORE any counting,
+        // so totals/progress reflect only compared problems
+        if (cfg.excludePids?.length) {
+            const excluded = new Set(cfg.excludePids);
+            for (const pid of pids) if (excluded.has(pid)) byPid.delete(pid);
+            pids = pids.filter((pid) => !excluded.has(pid));
+        }
         if (!pids.length) {
             // nothing collected: no record carries contest=tid for this
             // contest — log loudly so "no results" is debuggable
@@ -257,7 +275,9 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         for (let pi = 0; pi < pids.length; pi++) {
             const pid = pids[pi];
             const rdocs = byPid.get(pid)!;
-            const fpCache = await getFingerprintMap(rdocs.map((r) => r._id));
+            const fpCache = cfg.ignoreCache
+                ? new Map<string, FingerprintDoc>()
+                : await getFingerprintMap(rdocs.map((r) => r._id));
             const groups = new Map<string, FpGroup>();
             // per-rid evidence artifacts (idents/comments/flags survive only
             // per submission — same-group members may differ, and that

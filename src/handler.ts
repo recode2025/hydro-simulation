@@ -55,10 +55,23 @@ function resolveThresholds(
     return t;
 }
 
+/** Parse an admin-typed problem exclusion list ("1001,1002 1003") into a
+ *  clean ascending unique array; undefined when nothing valid was given. */
+function parseExcludePids(raw: string): number[] | undefined {
+    const pids = Array.from(new Set(
+        String(raw || '').split(/[,，;;\s]+/)
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isInteger(n) && n > 0),
+    )).sort((a, b) => a - b);
+    return pids.length ? pids : undefined;
+}
+
 /** Create a waiting report and enqueue the scan immediately. */
 async function triggerScan(
     ctx: Context, domainId: string, tid: ObjectId, mode: 'latest' | 'all', uid: number,
     override?: { identical?: number; high?: number; suspected?: number },
+    noCache = false,
+    excludePids?: number[],
 ) {
     const tdoc = await ContestModel.get(domainId, tid);
     if (!tdoc) throw new NotFoundError(tid);
@@ -72,7 +85,12 @@ async function triggerScan(
         beginAt: tdoc.beginAt,
         endAt: tdoc.endAt,
         mode,
-        config: { k: cfg.k, minTokens: cfg.minTokens, thresholds: resolveThresholds(override, cfg.thresholds) },
+        config: {
+            k: cfg.k, minTokens: cfg.minTokens,
+            thresholds: resolveThresholds(override, cfg.thresholds),
+            ignoreCache: !!noCache,
+            excludePids,
+        },
         triggeredBy: uid,
     });
     if (reportId) {
@@ -98,7 +116,12 @@ async function triggerScan(
         beginAt: tdoc.beginAt,
         endAt: tdoc.endAt,
         mode,
-        config: { k: cfg.k, minTokens: cfg.minTokens, thresholds: resolveThresholds(override, cfg.thresholds) },
+        config: {
+            k: cfg.k, minTokens: cfg.minTokens,
+            thresholds: resolveThresholds(override, cfg.thresholds),
+            ignoreCache: !!noCache,
+            excludePids,
+        },
         triggeredBy: uid,
     });
     if (freshId) startScanNow(freshId);
@@ -186,16 +209,18 @@ export class SimListHandler extends SimBaseHandler {
     @param('tIdentical', Types.Float, true)
     @param('tHigh', Types.Float, true)
     @param('tSuspected', Types.Float, true)
+    @param('noCache', Types.UnsignedInt, true)
+    @param('exclude', Types.Content, true)
     async postRun(
         domainId: string, tid: ObjectId, mode = '',
-        tIdentical = 0, tHigh = 0, tSuspected = 0,
+        tIdentical = 0, tHigh = 0, tSuspected = 0, noCache = 0, exclude = '',
     ) {
         // quick-scan posts no mode: fall back to the configured default
         const cfgMode = readConfig(this.ctx).mode;
         const m = mode === 'all' || mode === 'latest' ? mode : cfgMode;
         await triggerScan(this.ctx, domainId, tid, m, this.user._id, {
             identical: tIdentical, high: tHigh, suspected: tSuspected,
-        });
+        }, !!noCache, parseExcludePids(exclude));
         this.response.redirect = this.url('domain_sim_detail', { tid });
     }
 
@@ -367,9 +392,11 @@ export class SimDetailHandler extends SimBaseHandler {
     @param('tIdentical', Types.Float, true)
     @param('tHigh', Types.Float, true)
     @param('tSuspected', Types.Float, true)
+    @param('noCache', Types.UnsignedInt, true)
+    @param('exclude', Types.Content, true)
     async postRerun(
         domainId: string, tid: ObjectId, mode = 'latest',
-        tIdentical = 0, tHigh = 0, tSuspected = 0,
+        tIdentical = 0, tHigh = 0, tSuspected = 0, noCache = 0, exclude = '',
     ) {
         await deleteContestData(domainId, tid);
         // also drop any pending task of the report(s) just deleted, so a
@@ -377,7 +404,7 @@ export class SimDetailHandler extends SimBaseHandler {
         await deleteContestTasks(domainId, tid);
         await triggerScan(this.ctx, domainId, tid, mode === 'all' ? 'all' : 'latest', this.user._id, {
             identical: tIdentical, high: tHigh, suspected: tSuspected,
-        });
+        }, !!noCache, parseExcludePids(exclude));
         this.response.redirect = this.url('domain_sim_detail', { tid });
     }
 

@@ -114,22 +114,39 @@
         if (!any) { // never leave the canvas fully empty
             for (var j = 0; j < boxes.length; j++) { boxes[j].checked = true; checked[boxes[j].getAttribute('data-sim-level')] = true; }
         }
-        for (var k = 0; k < this.nodes.length; k++) {
-            this.nodes[k].deg = 0;
-            this.nodes[k].maxLevel = 0;
-            this.nodes[k].visible = false;
-        }
         var visibleEdges = 0;
-        for (var e = 0; e < this.edges.length; e++) {
-            var edge = this.edges[e];
-            edge.visible = checked[String(edge.level)] === true;
-            if (edge.visible && edge.a && edge.b) {
-                visibleEdges++;
-                edge.a.deg++; edge.b.deg++;
-                edge.a.visible = edge.b.visible = true;
-                if (edge.level > edge.a.maxLevel) edge.a.maxLevel = edge.level;
-                if (edge.level > edge.b.maxLevel) edge.b.maxLevel = edge.level;
+        // two passes' worth of state reset lives here; runFilter is called
+        // twice when the default checkbox set filters out EVERYTHING (e.g.
+        // all pairs are Suspected but Suspected starts unchecked)
+        var runFilter = function () {
+            visibleEdges = 0;
+            for (var k = 0; k < this.nodes.length; k++) {
+                this.nodes[k].deg = 0;
+                this.nodes[k].maxLevel = 0;
+                this.nodes[k].visible = false;
             }
+            for (var e = 0; e < this.edges.length; e++) {
+                var edge = this.edges[e];
+                edge.visible = checked[String(edge.level)] === true;
+                if (edge.visible && edge.a && edge.b) {
+                    visibleEdges++;
+                    edge.a.deg++; edge.b.deg++;
+                    edge.a.visible = edge.b.visible = true;
+                    if (edge.level > edge.a.maxLevel) edge.a.maxLevel = edge.level;
+                    if (edge.level > edge.b.maxLevel) edge.b.maxLevel = edge.level;
+                }
+            }
+        }.bind(this);
+        runFilter();
+        if (visibleEdges === 0 && this.edges.length > 0) {
+            // the checked levels have no edges — fall back to showing every
+            // level instead of an empty canvas ("no pairs" lie)
+            var boxes2 = document.querySelectorAll('[data-sim-level]');
+            for (var b = 0; b < boxes2.length; b++) {
+                boxes2[b].checked = true;
+                checked[boxes2[b].getAttribute('data-sim-level')] = true;
+            }
+            runFilter();
         }
         var visibleNodes = 0;
         for (var n = 0; n < this.nodes.length; n++) if (this.nodes[n].visible) visibleNodes++;

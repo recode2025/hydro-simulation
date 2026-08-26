@@ -69,7 +69,7 @@
 
 # user query
 'Filter by user (name or ID)': Filter by user (name or ID)
-'No such user in this domain: {0}': 'No such user in this domain: {0}'
+'No such user in this domain:': 'No such user in this domain:'
 'User Summary': User Summary
 'Max similarity': Max similarity
 'Partners': Partners
@@ -140,3 +140,11 @@
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.': 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.'
 'Diagnostics': Diagnostics
 'Retrying after error': Retrying after error
+'Ignore fingerprint cache': Ignore fingerprint cache
+'Refetch every submission and recompute all fingerprints from source. Identical results, full compute cost.': Refetch every submission and recompute all fingerprints from source. Identical results, full compute cost.
+'Exclude problems': Exclude problems
+'Check problems to skip entirely — trivial problems where everyone writes near-identical code.': Check problems to skip entirely — trivial problems where everyone writes near-identical code.
+'Excluded problems': Excluded problems
+'Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.': Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.
+'Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.': Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.
+'Delete ALL similarity pairs and reports of this contest? This cannot be undone.': Delete ALL similarity pairs and reports of this contest? This cannot be undone.

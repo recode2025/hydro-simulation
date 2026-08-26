@@ -41,7 +41,13 @@ export interface ReportDoc {
         cacheHits?: number;
     };
     mode: 'latest' | 'all';
-    config: { k: number; minTokens: number; thresholds: { identical: number; high: number; suspected: number } };
+    config: {
+        k: number; minTokens: number;
+        thresholds: { identical: number; high: number; suspected: number };
+        ignoreCache?: boolean;
+        /** problems excluded from comparison (trivial problems) */
+        excludePids?: number[];
+    };
     triggeredBy: number;
     error?: string;
     createdAt: Date;

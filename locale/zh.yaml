@@ -72,7 +72,7 @@
 
 # user query
 'Filter by user (name or ID)': 按用户过滤（用户名或 ID）
-'No such user in this domain: {0}': 该域中不存在用户：{0}
+'No such user in this domain:': 该域中不存在用户：
 'User Summary': 用户汇总
 'Max similarity': 最高相似度
 'Partners': 涉及对方
@@ -148,3 +148,11 @@
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.': 未发现相似对。查重只比较同题的不同用户；「每人每题取最后一次提交」模式只取每人每题的最后一次提交——如需要请用「所有提交」模式重扫或调低阈值。
 'Diagnostics': 诊断
 'Retrying after error': 出错后自动重试
+'Ignore fingerprint cache': 忽略指纹缓存
+'Refetch every submission and recompute all fingerprints from source. Identical results, full compute cost.': 重新抓取每份提交并从头重算全部指纹。结果相同，消耗完整算力。
+'Exclude problems': 排除题目
+'Check problems to skip entirely — trivial problems where everyone writes near-identical code.': 勾选要从查重中整体排除的题目——简单题人人写法趋同，比对只会产生噪声。
+'Excluded problems': 已排除题目
+'Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.': 重新查重会清空本报告并从头重扫；删除会移除该比赛全部相似对与报告。
+'Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.': 移除该比赛的所有相似对、报告与自动扫描任务。比赛本身不受影响。
+'Delete ALL similarity pairs and reports of this contest? This cannot be undone.': 确定删除该比赛的全部相似对与报告？此操作不可撤销。

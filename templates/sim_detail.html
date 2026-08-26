@@ -1,6 +1,6 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=3">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=4">
 <div class="section">
   <div class="section__header">
     <div>
@@ -77,13 +77,34 @@
         </span>
       </div>
       <div class="sim-runform__row">
+        <label class="sim-runform__label">{{ _('Exclude problems') }}</label>
+        <div class="sim-pickpids">
+          {%- for p in tdoc.pids -%}
+          <label class="sim-pickpid{% if report and report.config.excludePids and p in report.config.excludePids %} is-off{% endif %}">
+            <input type="checkbox" data-sim-pid="{{ p }}"{% if report and report.config.excludePids and p in report.config.excludePids %} checked{% endif %}>
+            <span>#{{ p }}{% if pdict[p] %} {{ pdict[p].title|truncate(14) }}{% endif %}</span>
+          </label>
+          {%- endfor -%}
+          <input type="hidden" name="exclude" value="{{ report.config.excludePids|join(',') if report and report.config.excludePids else '' }}">
+          <span class="supplementary sim-pickpids__tip">{{ _('Check problems to skip entirely — trivial problems where everyone writes near-identical code.') }}</span>
+        </div>
+      </div>
+      <div class="sim-runform__row">
         <button type="submit" class="primary rounded button">{{ _('Scan now') }}</button>
         <span class="supplementary">{{ _('Similarity thresholds (leave defaults if unsure)') }}</span>
+        <label class="checkbox--inline" title="{{ _('Refetch every submission and recompute all fingerprints from source. Identical results, full compute cost.') }}">
+          <input type="checkbox" name="noCache" value="1"{% if report and report.config.ignoreCache %} checked{% endif %}>
+          {{ _('Ignore fingerprint cache') }}
+        </label>
       </div>
     </form>
     {% endif %}
   {% else %}
     <div class="sim-statcards">
+      <div class="sim-statcard sim-statcard--total">
+        <div class="sim-statcard__num">{{ report.stats.pairs }}</div>
+        <div class="sim-statcard__label">{{ _('Similar pairs') }}</div>
+      </div>
       <div class="sim-statcard sim-statcard--3">
         <div class="sim-statcard__num">{{ report.stats.l3 }}</div>
         <div class="sim-statcard__label">{{ _('Identical') }}</div>
@@ -143,6 +164,12 @@
         <span class="sim-badge sim-badge--2">{{ _('High') }} ≥ {{ report.config.thresholds.high }}</span>
         <span class="sim-badge sim-badge--1">{{ _('Suspected') }} ≥ {{ report.config.thresholds.suspected }}</span>
       </span>
+      {% if report.config.excludePids %}
+      <span>{{ _('Excluded problems') }}:
+        {%- for p in report.config.excludePids %} <span class="sim-badge sim-badge--none">#{{ p }}</span>{% endfor %}
+      </span>
+      {% endif %}
+      {% if report.config.ignoreCache %}<span class="sim-badge sim-badge--none">{{ _('Ignore fingerprint cache') }}</span>{% endif %}
     </div>
   {% endif %}
   </div>
@@ -236,7 +263,7 @@
   </div>
   <div class="section__body no-padding">
   {% if user and not filterUdoc %}
-    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain: {0}').format(user) }}</p>
+    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain:') }} {{ user }}</p>
   {% endif %}
   {% if not pairs.length %}
     {{ nothing.render('No similar pair found...') }}
@@ -299,19 +326,23 @@
   </div>
 </div>
 
-<div class="section">
+<div class="section sim-danger">
   <div class="section__header">
-    <h1 class="section__title">{{ _('Danger Zone') }}</h1>
+    <h1 class="section__title sim-danger__title">
+      <span class="icon icon-warning sim-danger__icon"></span> {{ _('Danger Zone') }}
+    </h1>
+    <div class="supplementary sim-danger__sub">{{ _('Rerun wipes this report and rescans from scratch; delete removes every pair and report of this contest.') }}</div>
   </div>
-  <div class="section__body">
-    <form method="post" class="sim-runform">
+  <div class="section__body sim-danger__grid">
+    <form method="post" class="sim-runform sim-panel">
       <input type="hidden" name="operation" value="rerun">
       <input type="hidden" name="tid" value="{{ tid }}">
+      <div class="sim-panel__name">{{ _('Rerun scan') }}</div>
       <div class="sim-runform__row">
         <label class="sim-runform__label">{{ _('Mode') }}</label>
         <select class="inline compact select" name="mode">
-          <option value="latest">{{ _('Latest per user') }}</option>
-          <option value="all">{{ _('All submissions') }}</option>
+          <option value="latest"{% if report and report.mode == 'latest' %} selected{% endif %}>{{ _('Latest per user') }}</option>
+          <option value="all"{% if report and report.mode == 'all' %} selected{% endif %}>{{ _('All submissions') }}</option>
         </select>
       </div>
       <div class="sim-runform__row">
@@ -323,16 +354,56 @@
         </span>
       </div>
       <div class="sim-runform__row">
+        <label class="sim-runform__label">{{ _('Exclude problems') }}</label>
+        <div class="sim-pickpids">
+          {%- for p in tdoc.pids -%}
+          <label class="sim-pickpid{% if report and report.config.excludePids and p in report.config.excludePids %} is-off{% endif %}">
+            <input type="checkbox" data-sim-pid="{{ p }}"{% if report and report.config.excludePids and p in report.config.excludePids %} checked{% endif %}>
+            <span>#{{ p }}{% if pdict[p] %} {{ pdict[p].title|truncate(14) }}{% endif %}</span>
+          </label>
+          {%- endfor -%}
+          <input type="hidden" name="exclude" value="{{ report.config.excludePids|join(',') if report and report.config.excludePids else '' }}">
+        </div>
+      </div>
+      <div class="sim-runform__row">
         <button type="submit" class="primary rounded button">{{ _('Rerun scan') }}</button>
+        <label class="checkbox--inline" title="{{ _('Refetch every submission and recompute all fingerprints from source. Identical results, full compute cost.') }}">
+          <input type="checkbox" name="noCache" value="1"{% if report and report.config.ignoreCache %} checked{% endif %}>
+          {{ _('Ignore fingerprint cache') }}
+        </label>
       </div>
     </form>
-    <form method="post" class="sim-inline-form">
+    <form method="post" class="sim-inline-form sim-panel sim-panel--danger" onsubmit="return confirm('{{ _('Delete ALL similarity pairs and reports of this contest? This cannot be undone.') }}')">
       <input type="hidden" name="operation" value="delete">
       <input type="hidden" name="tid" value="{{ tid }}">
+      <div class="sim-panel__name">{{ _('Delete report') }}</div>
+      <p class="supplementary">{{ _('Removes every pair, every report and the auto-scan tasks of this contest. The contest itself is untouched.') }}</p>
       <button type="submit" class="rounded button sim-btn--danger">{{ _('Delete report') }}</button>
     </form>
   </div>
 </div>
+<script>
+(function () {
+  // exclude-problem chips: live dimming + sync checked pids into the hidden
+  // input right before submit (works for every form on this page)
+  document.querySelectorAll('.sim-pickpid input[data-sim-pid]').forEach(function (box) {
+    box.addEventListener('change', function () {
+      box.closest('.sim-pickpid').classList.toggle('is-off', box.checked);
+    });
+  });
+  document.querySelectorAll('form').forEach(function (f) {
+    var hidden = f.querySelector('input[name="exclude"]');
+    if (!hidden) return;
+    f.addEventListener('submit', function () {
+      var ids = [];
+      f.querySelectorAll('input[data-sim-pid]').forEach(function (c) {
+        if (c.checked) ids.push(c.getAttribute('data-sim-pid'));
+      });
+      hidden.value = ids.join(',');
+    });
+  });
+})();
+</script>
 {% endif %}
 
 {% if report and (report.status == 'waiting' or report.status == 'running') %}

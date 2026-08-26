@@ -1,6 +1,6 @@
 {% extends "domain_base.html" %}
 {% block domain_content %}
-<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=3">
+<link rel="stylesheet" href="{{ UiContext.cdn_prefix }}sim/sim.css?v=4">
 <div class="section">
   <div class="section__header">
     <h1 class="section__title" data-heading>{{ _('Code Diff') }} — #{{ pair.pid }} {{ pdict[pair.pid].title|default('') if pdict else '' }}</h1>
@@ -8,48 +8,47 @@
       <a class="rounded button" href="{{ urlBack }}">{{ _('Back to report') }}</a>
     </div>
   </div>
+  <div class="section__body sim-diff-head">
+    <div class="sim-diff-side sim-diff-side--a">
+      <div class="sim-diff-side__user">{% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}</div>
+      <a class="supplementary" href="{{ urlRecord1 }}">{{ lang1 }} · {{ _('record') }}</a>
+    </div>
+    <div class="sim-diff-center sim-diff-center--{{ pair.level }}">
+      <div class="sim-diff-center__badge">
+        {% if pair.level == 3 %}<span class="sim-badge sim-badge--3">{{ _('Identical') }}</span>
+        {% elif pair.level == 2 %}<span class="sim-badge sim-badge--2">{{ _('High') }}</span>
+        {% else %}<span class="sim-badge sim-badge--1">{{ _('Suspected') }}</span>{% endif %}
+      </div>
+      <div class="sim-diff-center__sim sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</div>
+      <div class="supplementary">{{ _('Sørensen–Dice coefficient over normalized k-gram fingerprints') }}</div>
+      {% if degraded %}
+      <div class="supplementary sim-diff-center__warn">{{ _('Files too large for highlight; showing plain side-by-side view.') }}</div>
+      {% endif %}
+    </div>
+    <div class="sim-diff-side sim-diff-side--b">
+      <div class="sim-diff-side__user">{% if udict[pair.uid2] %}{{ user.render_inline(udict[pair.uid2]) }}{% else %}{{ pair.uid2 }}{% endif %}</div>
+      <a class="supplementary" href="{{ urlRecord2 }}">{{ lang2 }} · {{ _('record') }}</a>
+    </div>
+  </div>
+  {% if pair.simSeq != null or pair.simTfidf != null or pair.simVar != null or pair.simFunc != null or pair.simStruct != null or pair.sharedComments != null %}
   <div class="section__body">
-    <p>
-      {% if pair.level == 3 %}<span class="sim-badge sim-badge--3">{{ _('Identical') }}</span>
-      {% elif pair.level == 2 %}<span class="sim-badge sim-badge--2">{{ _('High') }}</span>
-      {% else %}<span class="sim-badge sim-badge--1">{{ _('Suspected') }}</span>{% endif %}
-      <span class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</span>
-      {{ _('Sørensen–Dice coefficient over normalized k-gram fingerprints') }}
-    </p>
-    {% if pair.simSeq != null or pair.simTfidf != null or pair.simVar != null or pair.simFunc != null or pair.simStruct != null or pair.sharedComments != null %}
-    <p class="sim-evidence supplementary">
-      {{ _('Evidence metrics') }}:
-      <span title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }} <strong>{{ (pair.simSeq * 100)|round(1) if pair.simSeq != null else '—' }}%</strong></span>
-      <span title="{{ _('TF-IDF similarity') }}">TF-IDF <strong>{{ (pair.simTfidf * 100)|round(1) if pair.simTfidf != null else '—' }}%</strong></span>
-      <span title="{{ _('Variable name similarity') }}">{{ _('Var') }} <strong>{{ (pair.simVar * 100)|round(1) if pair.simVar != null else '—' }}%</strong></span>
-      <span title="{{ _('Function similarity') }}">{{ _('Func') }} <strong>{{ (pair.simFunc * 100)|round(1) if pair.simFunc != null else '—' }}%</strong></span>
-      <span title="{{ _('Structure similarity') }}">{{ _('Struct') }} <strong>{{ (pair.simStruct * 100)|round(1) if pair.simStruct != null else '—' }}%</strong></span>
-      <span title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }} <strong>{{ pair.sharedComments if pair.sharedComments != null else '—' }}</strong></span>
+    <div class="sim-evidence">
+      <span class="sim-evidence__label">{{ _('Evidence metrics') }}</span>
+      <span class="sim-chip" title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }} <strong>{{ (pair.simSeq * 100)|round(1) if pair.simSeq != null else '—' }}%</strong></span>
+      <span class="sim-chip" title="{{ _('TF-IDF similarity') }}">TF-IDF <strong>{{ (pair.simTfidf * 100)|round(1) if pair.simTfidf != null else '—' }}%</strong></span>
+      <span class="sim-chip" title="{{ _('Variable name similarity') }}">{{ _('Var') }} <strong>{{ (pair.simVar * 100)|round(1) if pair.simVar != null else '—' }}%</strong></span>
+      <span class="sim-chip" title="{{ _('Function similarity') }}">{{ _('Func') }} <strong>{{ (pair.simFunc * 100)|round(1) if pair.simFunc != null else '—' }}%</strong></span>
+      <span class="sim-chip" title="{{ _('Structure similarity') }}">{{ _('Struct') }} <strong>{{ (pair.simStruct * 100)|round(1) if pair.simStruct != null else '—' }}%</strong></span>
+      <span class="sim-chip" title="{{ _('Identical comment lines on both sides') }}">{{ _('Shared comments') }} <strong>{{ pair.sharedComments if pair.sharedComments != null else '—' }}</strong></span>
       {%- if pair.flags1 or pair.flags2 %}
       <span class="sim-flaglist">
-        {{ _('Flags detected') }}:
         {%- if pair.flags1 %}{% for f in pair.flags1 %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}{% endif -%}
         {%- if pair.flags2 %}{% for f in pair.flags2 %}<span class="sim-flag" title="{{ _('Keyword flag (informational, not proof)') }}">{{ f }}</span>{% endfor %}{% endif -%}
       </span>
       {% endif -%}
-    </p>
-    {% endif %}
-    <div class="row">
-      <div class="medium-6 columns">
-        {% if udict[pair.uid1] %}{{ user.render_inline(udict[pair.uid1]) }}{% else %}{{ pair.uid1 }}{% endif %}
-        <a class="supplementary" href="{{ urlRecord1 }}">{{ lang1 }} · {{ _('record') }}</a>
-      </div>
-      <div class="medium-6 columns">
-        {% if udict[pair.uid2] %}{{ user.render_inline(udict[pair.uid2]) }}{% else %}{{ pair.uid2 }}{% endif %}
-        <a class="supplementary" href="{{ urlRecord2 }}">{{ lang2 }} · {{ _('record') }}</a>
-      </div>
     </div>
-    {% if degraded %}
-      <blockquote class="warn typo">
-        {{ _('Files too large for highlight; showing plain side-by-side view.') }}
-      </blockquote>
-    {% endif %}
   </div>
+  {% endif %}
   <div class="section__body no-padding">
     <div class="sim-diff-wrap">
       <table class="sim-diff">
