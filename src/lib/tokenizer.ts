@@ -28,6 +28,11 @@ export interface Token {
  * unaffected by whether collectors are passed.
  */
 export interface TokenCollectors {
+    /** Called for every token pushed to the stream, with its LEXICAL value —
+     *  identifiers keep their real names while literals stay normalized.
+     *  Equal to the stream value except at identifier positions; this is the
+     *  basis of the keep-names (rename-sensitive) fingerprint channel. */
+    tok?: (k: Token['k'], v: string) => void;
     /** Called for every NON-keyword identifier right before its V token is
      *  pushed; `tokenIndex` is the index that V token will occupy. */
     ident?: (word: string, tokenIndex: number) => void;
@@ -196,7 +201,10 @@ function skipToSemicolon(src: string, i: number) {
  */
 export function tokenize(src: string, family: Family, collectors?: TokenCollectors): Token[] {
     const tokens: Token[] = [];
-    const push = (k: Token['k'], v: string) => tokens.push({ k, v });
+    const push = (k: Token['k'], v: string, lexV?: string) => {
+        tokens.push({ k, v });
+        collectors?.tok?.(k, lexV !== undefined ? lexV : v);
+    };
     const n = src.length;
     let i = 0;
     const lower = family === 'pascal';
@@ -332,7 +340,7 @@ export function tokenize(src: string, family: Family, collectors?: TokenCollecto
             if (keywords?.has(word)) push('kw', word);
             else {
                 collectors?.ident?.(word, tokens.length);
-                push('ph', 'V');
+                push('ph', 'V', word);
             }
             i = j;
             continue;

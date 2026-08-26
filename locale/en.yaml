@@ -52,11 +52,15 @@
 
 # evidence metrics
 'Seq': Seq
+'Lex': Lex
 'Var': Var
 'Func': Func
 'Struct': Struct
 'Sequence similarity (token LCS)': Sequence similarity (token LCS)
 'TF-IDF similarity': TF-IDF similarity
+'Lexical similarity (identifiers kept — renames drop it)': Lexical similarity (identifiers kept — renames drop it)
+'Auto strict mode': Auto strict mode
+'These problems were auto-detected as trivial (everyone writes the same skeleton): levels there were decided by the lexical channel — identifier names kept — instead of structure.': 'These problems were auto-detected as trivial (everyone writes the same skeleton): levels there were decided by the lexical channel — identifier names kept — instead of structure.'
 'Variable name similarity': Variable name similarity
 'Function similarity': Function similarity
 'Structure similarity': Structure similarity

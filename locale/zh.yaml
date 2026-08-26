@@ -55,11 +55,15 @@
 
 # evidence metrics
 'Seq': 序列
+'Lex': 字面
 'Var': 变量
 'Func': 函数
 'Struct': 结构
 'Sequence similarity (token LCS)': 序列相似度（token 最长公共子序列）
 'TF-IDF similarity': TF-IDF 相似度
+'Lexical similarity (identifiers kept — renames drop it)': 保留变量名的字面相似度——改名会显著降低
+'Auto strict mode': 简单题自动严筛
+'These problems were auto-detected as trivial (everyone writes the same skeleton): levels there were decided by the lexical channel — identifier names kept — instead of structure.': 这些题目被自动判定为简单题（人人写法趋同）：其分级改由字面通道（保留变量名）决定，结构相似度不再作为依据。
 'Variable name similarity': 变量名相似度
 'Function similarity': 函数相似度
 'Structure similarity': 结构相似度

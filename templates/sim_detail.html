@@ -169,6 +169,12 @@
         {%- for p in report.config.excludePids %} <span class="sim-badge sim-badge--none">#{{ p }}</span>{% endfor %}
       </span>
       {% endif %}
+      {% if report.stats.trivialPids %}
+      <span title="{{ _('These problems were auto-detected as trivial (everyone writes the same skeleton): levels there were decided by the lexical channel — identifier names kept — instead of structure.') }}">
+        {{ _('Auto strict mode') }}:
+        {%- for p in report.stats.trivialPids %} <span class="sim-badge sim-badge--none">#{{ p }}</span>{% endfor %}
+      </span>
+      {% endif %}
       {% if report.config.ignoreCache %}<span class="sim-badge sim-badge--none">{{ _('Ignore fingerprint cache') }}</span>{% endif %}
     </div>
   {% endif %}
@@ -260,6 +266,7 @@
           <option value=""{% if not metric %} selected{% endif %}>{{ _('All metrics') }}</option>
           <option value="seq"{% if metric == 'seq' %} selected{% endif %}>{{ _('Seq') }}</option>
           <option value="tfidf"{% if metric == 'tfidf' %} selected{% endif %}>TF-IDF</option>
+          <option value="lex"{% if metric == 'lex' %} selected{% endif %}>{{ _('Lex') }}</option>
           <option value="var"{% if metric == 'var' %} selected{% endif %}>{{ _('Var') }}</option>
           <option value="func"{% if metric == 'func' %} selected{% endif %}>{{ _('Func') }}</option>
           <option value="struct"{% if metric == 'struct' %} selected{% endif %}>{{ _('Struct') }}</option>
@@ -283,6 +290,7 @@
      <span class="supplementary">{{ _('Evidence metrics') }}</span>
      <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="seq"><span title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</span></label>
      <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="tfidf"><span title="{{ _('TF-IDF similarity') }}">TF-IDF</span></label>
+     <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="lex"><span title="{{ _('Lexical similarity (identifiers kept — renames drop it)') }}">{{ _('Lex') }}</span></label>
      <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="var"><span title="{{ _('Variable name similarity') }}">{{ _('Var') }}</span></label>
      <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="func"><span title="{{ _('Function similarity') }}">{{ _('Func') }}</span></label>
      <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="struct"><span title="{{ _('Structure similarity') }}">{{ _('Struct') }}</span></label>
@@ -297,6 +305,7 @@
           <th title="{{ _('Sørensen–Dice over k-gram fingerprints — decides the level') }}">{{ _('Similarity') }}</th>
           <th data-m="seq" title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</th>
           <th data-m="tfidf" title="{{ _('TF-IDF similarity') }}">TF-IDF</th>
+          <th data-m="lex" title="{{ _('Lexical similarity (identifiers kept — renames drop it)') }}">{{ _('Lex') }}</th>
           <th data-m="var" title="{{ _('Variable name similarity') }}">{{ _('Var') }}</th>
           <th data-m="func" title="{{ _('Function similarity') }}">{{ _('Func') }}</th>
           <th data-m="struct" title="{{ _('Structure similarity') }}">{{ _('Struct') }}</th>
@@ -320,6 +329,7 @@
           <td class="sim-sim--{{ pair.level }}">{{ (pair.similarity * 100)|round(2) }}%</td>
           <td data-m="seq" class="sim-m sim-m--{{ row.seqH }}">{{ row.seqD if row.seqD != null else '—' }}</td>
           <td data-m="tfidf" class="sim-m sim-m--{{ row.tfidfH }}">{{ row.tfidfD if row.tfidfD != null else '—' }}</td>
+          <td data-m="lex" class="sim-m sim-m--{{ row.lexH }}">{{ row.lexD if row.lexD != null else '—' }}</td>
           <td data-m="var" class="sim-m sim-m--{{ row.varH }}">{{ row.varD if row.varD != null else '—' }}</td>
           <td data-m="func" class="sim-m sim-m--{{ row.funcH }}">{{ row.funcD if row.funcD != null else '—' }}</td>
           <td data-m="struct" class="sim-m sim-m--{{ row.structH }}">{{ row.structD if row.structD != null else '—' }}</td>

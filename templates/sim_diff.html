@@ -30,12 +30,13 @@
       <a class="supplementary" href="{{ urlRecord2 }}">{{ lang2 }} · {{ _('record') }}</a>
     </div>
   </div>
-  {% if pair.simSeq != null or pair.simTfidf != null or pair.simVar != null or pair.simFunc != null or pair.simStruct != null or pair.sharedComments != null %}
+  {% if pair.simSeq != null or pair.simTfidf != null or pair.simLex != null or pair.simVar != null or pair.simFunc != null or pair.simStruct != null or pair.sharedComments != null %}
   <div class="section__body">
     <div class="sim-metricpick sim-metricpick--page">
       <span class="supplementary">{{ _('Evidence metrics') }}</span>
       <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="seq"><span title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }}</span></label>
       <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="tfidf"><span title="{{ _('TF-IDF similarity') }}">TF-IDF</span></label>
+      <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="lex"><span title="{{ _('Lexical similarity (identifiers kept — renames drop it)') }}">{{ _('Lex') }}</span></label>
       <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="var"><span title="{{ _('Variable name similarity') }}">{{ _('Var') }}</span></label>
       <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="func"><span title="{{ _('Function similarity') }}">{{ _('Func') }}</span></label>
       <label class="sim-metricpick__chip"><input type="checkbox" data-sim-metric="struct"><span title="{{ _('Structure similarity') }}">{{ _('Struct') }}</span></label>
@@ -46,6 +47,7 @@
       <span class="sim-evidence__label">{{ _('Evidence metrics') }}</span>
       <span class="sim-chip" data-m="seq" title="{{ _('Sequence similarity (token LCS)') }}">{{ _('Seq') }} <strong>{{ (pair.simSeq * 100)|round(1) if pair.simSeq != null else '—' }}%</strong></span>
       <span class="sim-chip" data-m="tfidf" title="{{ _('TF-IDF similarity') }}">TF-IDF <strong>{{ (pair.simTfidf * 100)|round(1) if pair.simTfidf != null else '—' }}%</strong></span>
+      <span class="sim-chip" data-m="lex" title="{{ _('Lexical similarity (identifiers kept — renames drop it)') }}">{{ _('Lex') }} <strong>{{ (pair.simLex * 100)|round(1) if pair.simLex != null else '—' }}%</strong></span>
       <span class="sim-chip" data-m="var" title="{{ _('Variable name similarity') }}">{{ _('Var') }} <strong>{{ (pair.simVar * 100)|round(1) if pair.simVar != null else '—' }}%</strong></span>
       <span class="sim-chip" data-m="func" title="{{ _('Function similarity') }}">{{ _('Func') }} <strong>{{ (pair.simFunc * 100)|round(1) if pair.simFunc != null else '—' }}%</strong></span>
       <span class="sim-chip" data-m="struct" title="{{ _('Structure similarity') }}">{{ _('Struct') }} <strong>{{ (pair.simStruct * 100)|round(1) if pair.simStruct != null else '—' }}%</strong></span>

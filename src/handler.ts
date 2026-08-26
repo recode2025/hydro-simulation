@@ -305,7 +305,7 @@ export class SimDetailHandler extends SimBaseHandler {
     // metric filter: only pairs where this evidence metric is at least the
     // given value (trivial problems saturate Seq/TF-IDF/Func/Struct for
     // everyone — Var is often the only signal left)
-    @param('metric', Types.Range(['seq', 'tfidf', 'var', 'func', 'struct', 'comments']), true)
+    @param('metric', Types.Range(['seq', 'tfidf', 'lex', 'var', 'func', 'struct', 'comments']), true)
     @param('metricGte', Types.Float, true)
     async get(
         domainId: string, tid: ObjectId, level = '1', pid?: number, page = 1, user = '',
@@ -318,7 +318,7 @@ export class SimDetailHandler extends SimBaseHandler {
         const query: any = { domainId, tid, level: { $gte: minLevel } };
         if (pid) query.pid = pid;
         const METRIC_FIELDS: Record<string, string> = {
-            seq: 'simSeq', tfidf: 'simTfidf', var: 'simVar',
+            seq: 'simSeq', tfidf: 'simTfidf', lex: 'simLex', var: 'simVar',
             func: 'simFunc', struct: 'simStruct', comments: 'sharedComments',
         };
         let metricField = '';
@@ -390,10 +390,10 @@ export class SimDetailHandler extends SimBaseHandler {
         );
         const rows = pairs.map((p) => ({
             pair: p,
-            seqD: pct(p.simSeq), tfidfD: pct(p.simTfidf), varD: pct(p.simVar),
-            funcD: pct(p.simFunc), structD: pct(p.simStruct),
-            seqH: heat(p.simSeq), tfidfH: heat(p.simTfidf), varH: heat(p.simVar),
-            funcH: heat(p.simFunc), structH: heat(p.simStruct),
+            seqD: pct(p.simSeq), tfidfD: pct(p.simTfidf), lexD: pct(p.simLex),
+            varD: pct(p.simVar), funcD: pct(p.simFunc), structD: pct(p.simStruct),
+            seqH: heat(p.simSeq), tfidfH: heat(p.simTfidf), lexH: heat(p.simLex),
+            varH: heat(p.simVar), funcH: heat(p.simFunc), structH: heat(p.simStruct),
         }));
 
         this.response.template = 'sim_detail.html';
@@ -520,6 +520,27 @@ export class SimStatusHandler extends SimBaseHandler {
     }
 }
 
+/** Shared graph payload builder: the page handler inlines the result into
+ *  HTML (the graph must render without any fetch — see graph.js init) and
+ *  the .json API serves it for debugging. Projection keeps the payload lean:
+ *  buildGraph only needs the fields below (not rids / langs / codeHashes). */
+async function buildGraphPayload(
+    domainId: string, tid: ObjectId, minLevel: 1 | 2 | 3,
+    urlFor: (pairId: string) => string,
+) {
+    const pairs = await collPair.find(
+        { domainId, tid },
+        { projection: { pid: 1, uid1: 1, uid2: 1, similarity: 1, level: 1 } },
+    ).sort({ similarity: -1 }).limit(20000).toArray();
+    const uids = Array.from(new Set(pairs.flatMap((p) => [p.uid1, p.uid2])));
+    const pids = Array.from(new Set(pairs.map((p) => p.pid)));
+    const [udict, pdict] = await Promise.all([
+        UserModel.getListForRender(domainId, uids, false),
+        ProblemModel.getList(domainId, pids, true, false),
+    ]);
+    return buildGraph(pairs, udict, pdict, minLevel, urlFor);
+}
+
 export class SimGraphHandler extends SimBaseHandler {
     @param('tid', Types.ObjectId)
     @param('level', Types.Range(['1', '2', '3']), true)
@@ -527,33 +548,32 @@ export class SimGraphHandler extends SimBaseHandler {
         const tdoc = await ContestModel.get(domainId, tid);
         if (!tdoc) throw new NotFoundError(tid);
         const report = await getLatestReport(domainId, tid);
+        const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1))) as 1 | 2 | 3;
+        const payload = await buildGraphPayload(
+            domainId, tid, minLevel,
+            (pairId) => this.url('domain_sim_diff', { tid, pairId: new ObjectId(pairId) }),
+        );
         this.response.template = 'sim_graph.html';
         this.response.body = {
-            tdoc, report, level: String(Math.max(1, Math.min(3, Number(level) || 1))),
+            tdoc, report, level: String(minLevel),
             apiUrl: this.url('domain_sim_graph_api', { tid }),
             urlBack: this.url('domain_sim_detail', { tid }),
+            // inlined for graph.js: the page renders with ZERO fetches (the
+            // old fetch path failed in ways that showed a phantom
+            // "no pairs" box). `<` escaped so a title can never close the
+            // inline <script> early.
+            payloadJson: JSON.stringify(payload).replace(/</g, '\\u003c'),
         };
     }
 }
 
-export class SimGraphApiHandler extends SimBaseHandler {    @param('tid', Types.ObjectId)
+export class SimGraphApiHandler extends SimBaseHandler {
+    @param('tid', Types.ObjectId)
     @param('level', Types.Range(['1', '2', '3']), true)
     async get(domainId: string, tid: ObjectId, level = '1') {
-        const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-        // projection keeps the payload lean: buildGraph only needs the fields
-        // below (not rids / langs / codeHashes)
-        const pairs = await collPair.find(
-            { domainId, tid },
-            { projection: { pid: 1, uid1: 1, uid2: 1, similarity: 1, level: 1 } },
-        ).sort({ similarity: -1 }).limit(20000).toArray();
-        const uids = Array.from(new Set(pairs.flatMap((p) => [p.uid1, p.uid2])));
-        const pids = Array.from(new Set(pairs.map((p) => p.pid)));
-        const [udict, pdict] = await Promise.all([
-            UserModel.getListForRender(domainId, uids, false),
-            ProblemModel.getList(domainId, pids, true, false),
-        ]);
-        this.response.body = buildGraph(
-            pairs, udict, pdict, minLevel as 1 | 2 | 3,
+        const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1))) as 1 | 2 | 3;
+        this.response.body = await buildGraphPayload(
+            domainId, tid, minLevel,
             (pairId) => this.url('domain_sim_diff', { tid, pairId: new ObjectId(pairId) }),
         );
     }

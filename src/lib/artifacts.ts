@@ -8,7 +8,9 @@
  *    every submission the codeHash group collapsed): baseHashes, tf,
  *    structVec, funcs.
  *  - PER-RID (destroyed by normalization on purpose — the differences ARE
- *    the evidence): idents, commentHashes, commentCount, flags.
+ *    the evidence): idents, commentHashes, commentCount, flags,
+ *    lexBaseHashes (fnv32a per token with identifier NAMES kept — the
+ *    rename-sensitive lexical channel; same-group members differ here).
  *
  * Persistence: artifactsToFpFields()/groupArtFromFpDoc()/ridArtFromFpDoc()
  * round-trip through the sim.fingerprint doc. FP_SCHEMA gates cache reuse —
@@ -21,8 +23,9 @@ import { langFamily, tokenText, tokenize } from './tokenizer.ts';
 import type { FuncSig } from './metrics.ts';
 import { fnv32a, pack, unpack } from './fingerprint.ts';
 
-/** Bump when the artifact field set changes — old cache entries miss once. */
-export const FP_SCHEMA = 2;
+/** Bump when the artifact field set changes — old cache entries miss once.
+ *  v3 adds lexBaseHashes (keep-names lexical channel). */
+export const FP_SCHEMA = 3;
 
 export const MAX_IDENTS = 512;
 export const MAX_COMMENT_LINES = 256;
@@ -42,6 +45,9 @@ export interface DocArtifacts {
     funcs: FuncSig[];
     /** sorted distinct identifier names — PER-RID */
     idents: string[];
+    /** fnv32a per token, identifiers KEPT as written (literals normalized) —
+     *  PER-RID; k-grams over this are the rename-sensitive lexical channel */
+    lexBaseHashes: Uint32Array;
     /** sorted distinct fnv32a of normalized comment lines — PER-RID */
     commentHashes: Uint32Array;
     /** raw comment line count — PER-RID */
@@ -303,15 +309,19 @@ function extractFunctionsPascal(tokens: Token[], names: Map<number, string>): Ra
 export function buildArtifacts(code: string, family: Family): DocArtifacts {
     const identsWithIdx: [string, number][] = [];
     const comments: string[] = [];
+    const lexVals: string[] = [];
     const tokens = tokenize(code, family, {
+        tok: (_k, v) => lexVals.push(v),
         ident: (w, idx) => identsWithIdx.push([w, idx]),
         comment: (raw) => comments.push(raw),
     });
 
     const baseHashes = new Uint32Array(tokens.length);
+    const lexBaseHashes = new Uint32Array(lexVals.length);
     const tf = new Map<string, number>();
     for (let i = 0; i < tokens.length; i++) {
         baseHashes[i] = fnv32a(tokens[i].v);
+        lexBaseHashes[i] = fnv32a(lexVals[i]);
         // tf-idf vocabulary: KEYWORDS only (control/declaration/typing words
         // — the algorithm's shape words). Placeholder tokens (V/N/S/C) occur
         // in every document and punctuation counts are near-identical across
@@ -364,6 +374,7 @@ export function buildArtifacts(code: string, family: Family): DocArtifacts {
         structVec: structVector(tokens),
         funcs,
         idents: identSet,
+        lexBaseHashes,
         commentHashes,
         commentCount,
         flags: scanKeywordFlags(code),
@@ -384,6 +395,7 @@ export function artifactsToFpFields(a: DocArtifacts) {
         structVec: a.structVec,
         funcs: a.funcs.map((f) => ({ n: f.name, l: f.len, h: f.hash })),
         idents: a.idents,
+        lexBaseHashes: pack(a.lexBaseHashes),
         commentHashes: pack(a.commentHashes),
         commentCount: a.commentCount,
         flags: a.flags,
@@ -400,6 +412,8 @@ export interface GroupArt {
 
 export interface RidArt {
     idents: string[];
+    /** keep-names token hashes (lexical channel) — PER-RID */
+    lexBaseHashes: Uint32Array;
     commentHashes: Uint32Array;
     commentCount: number;
     flags: string[];
@@ -420,6 +434,7 @@ export function groupArtFromFpDoc(doc: any): GroupArt {
 export function ridArtFromFpDoc(doc: any): RidArt {
     return {
         idents: doc.idents ?? [],
+        lexBaseHashes: doc.lexBaseHashes ? unpack(doc.lexBaseHashes) : new Uint32Array(0),
         commentHashes: doc.commentHashes ? unpack(doc.commentHashes) : new Uint32Array(0),
         commentCount: doc.commentCount ?? 0,
         flags: doc.flags ?? [],

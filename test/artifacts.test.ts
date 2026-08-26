@@ -168,3 +168,27 @@ test('artifacts: tokens equal plain tokenize (cache identity intact)', () => {
     const a = buildArtifacts(C_CODE, 'c');
     assert.equal(tokenText(a.tokens), tokenText(tokenize(C_CODE, 'c')));
 });
+
+test('lexBaseHashes: same structure + renamed vars -> same base, different lex', () => {
+    const a = buildArtifacts('int aaa(int x){int r=x*2;return r;}', 'c');
+    const b = buildArtifacts('int bbb(int y){int s=y*2;return s;}', 'c');
+    // normalized streams identical — one fingerprint group
+    assert.deepEqual(Array.from(a.baseHashes), Array.from(b.baseHashes));
+    // lexical streams differ: PER-RID rename evidence
+    assert.notDeepEqual(Array.from(a.lexBaseHashes), Array.from(b.lexBaseHashes));
+});
+
+test('lexBaseHashes: identical code -> identical lex; round-trips via fp fields', () => {
+    const a = buildArtifacts('int main(){int v=1;return v;}', 'c');
+    const b = buildArtifacts('int main(){int v=1;return v;}', 'c');
+    assert.deepEqual(Array.from(a.lexBaseHashes), Array.from(b.lexBaseHashes));
+    const fields = artifactsToFpFields(a);
+    assert.equal(fields.schema, FP_SCHEMA);
+    assert.ok(fields.lexBaseHashes!.length > 0);
+    const rart = ridArtFromFpDoc({
+        idents: fields.idents, lexBaseHashes: fields.lexBaseHashes,
+        commentHashes: fields.commentHashes, commentCount: fields.commentCount,
+        flags: fields.flags,
+    });
+    assert.deepEqual(Array.from(rart.lexBaseHashes), Array.from(a.lexBaseHashes));
+});

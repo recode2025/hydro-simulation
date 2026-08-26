@@ -7,7 +7,14 @@
  *  2. per problem group: build fingerprints with the sim.fingerprint cache
  *     (rid hit + same k => no code read at all), collapsing identical
  *     normalized sources (same codeHash) into one fingerprint group
- *  3. pairwise Sorensen-Dice via inverted-index accumulation
+ *  3. pairwise in two passes over group pairs: (a) histogram every group
+ *     pair's structural Dice and buffer the above-threshold ones — a median
+ *     at ~1 means the problem is TRIVIAL (everyone writes the same skeleton,
+ *     structure carries no evidence); (b) expand buffered pairs to member
+ *     pairs, level via classifyPair: structure gates normal problems but the
+ *     "identical" label additionally requires name evidence (lexical /
+ *     identifier similarity), and trivial problems are ranked entirely by the
+ *     keep-names lexical channel
  *  4. persist pairs (level >= suspected), stats, finish report
  *
  * The loop yields to the event loop between problems and between fingerprint
@@ -17,7 +24,7 @@
 import { ContestModel, RecordModel, ScheduleModel, StorageModel } from 'hydrooj';
 import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
-import { classify, diceCoeff } from './lib/dice';
+import { classifyPair, diceCoeff, histogramMedian } from './lib/dice';
 import type { Thresholds } from './lib/dice';
 import { codeHash, dedupSorted, kgramHashes, pack, unpack } from './lib/fingerprint';
 import { langFamily, tokenText } from './lib/tokenizer';
@@ -156,6 +163,20 @@ const MAX_PAIRS_PER_REPORT = 50_000;
  *  looping forever, which reads on the UI as stuck in 排队中 with no reason. */
 const MAX_TRANSIENT_RETRIES = 5;
 
+// ---- trivial-problem auto-detection (structural saturation) ----
+/** A problem whose cross-group structural Dice MEDIAN reaches this is
+ *  "trivial": the canonical solution is so simple that everyone's normalized
+ *  stream converges, so structure stops being evidence and levels are
+ *  decided by the lexical (keep-names) channel instead. */
+const TRIVIAL_MEDIAN = 0.8;
+/** Minimum cross-group pairs before the median means anything — three
+ *  submissions can saturate by luck. */
+const TRIVIAL_MIN_PAIRS = 10;
+/** Memory guard for the buffered group pairs of one problem (template hell:
+ *  thousands of groups all above threshold). Order matches emission order,
+ *  so dropping the tail drops exactly what the emission cap would drop. */
+const MAX_BUFFERED_GROUP_PAIRS = 200_000;
+
 interface FpGroup {
     codeHash: string;
     fps: Uint32Array;
@@ -201,10 +222,12 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         mode: report.mode,
         thresholds: report.config.thresholds,
     };
-    const stats = {
+    const stats: NonNullable<ReportDoc['stats']> = {
         users: 0, submissions: 0, skipped: 0, pairs: 0, l1: 0, l2: 0, l3: 0,
         skippedShort: 0, skippedBig: 0, skippedEmpty: 0, cacheHits: 0,
     };
+    /** problems this run auto-detected as trivial (structure saturated) */
+    const trivialPids: number[] = [];
     let pairCapLogged = false;
     const uids = new Set<number>();
     try {
@@ -283,6 +306,9 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             // per submission — same-group members may differ, and that
             // difference IS the rename-evasion evidence)
             const ridArt = new Map<string, RidArt>();
+            // per-rid k-gram fingerprint over the keep-names lexical hashes —
+            // computed once per rid; member pairs dice them pairwise
+            const ridFpsLex = new Map<string, Uint32Array>();
             let processed = 0;
             for (const rdoc of rdocs) {
                 const ridHex = rdoc._id.toHexString();
@@ -331,7 +357,8 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                         funcs: da.funcs, family,
                     };
                     rart = {
-                        idents: da.idents, commentHashes: da.commentHashes,
+                        idents: da.idents, lexBaseHashes: da.lexBaseHashes,
+                        commentHashes: da.commentHashes,
                         commentCount: da.commentCount, flags: da.flags,
                     };
                     // always cache: even when an identical normalized source was
@@ -344,6 +371,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                     });
                 }
                 ridArt.set(ridHex, rart!);
+                ridFpsLex.set(ridHex, dedupSorted(kgramHashes(rart.lexBaseHashes, cfg.k)));
                 let group = groups.get(ch);
                 if (!group) {
                     group = { codeHash: ch, fps, tokenCount, art: art!, members: new Map() };
@@ -356,7 +384,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                 await maybeBeat();
             }
 
-            // ---- pairwise dice via group pairs ----
+            // ---- pass 1: every group pair — saturation histogram + buffer ----
             // tf-idf document frequency over DISTINCT normalized sources
             // (groups), so duplicated submissions cannot inflate df
             const df = new Map<string, number>();
@@ -365,6 +393,14 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             }
             const nDocs = groups.size;
             const list = Array.from(groups.values());
+            // 101-bucket histogram of cross-group structural Dice: the MEDIAN
+            // decides whether this problem is trivial (structure saturated —
+            // see TRIVIAL_MEDIAN). Same-group pairs (i === j) are excluded:
+            // they are 1.0 by construction and their count tracks group
+            // sizes, not field-wide convergence.
+            const hist = new Uint32Array(101);
+            let crossPairs = 0;
+            const buffered: { i: number; j: number; sim: number; common: number }[] = [];
             for (let i = 0; i < list.length; i++) {
                 for (let j = i; j < list.length; j++) {
                     // yield + heartbeat INSIDE the j sweep: with O(n·m) LCS
@@ -389,78 +425,113 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                     } else {
                         ({ sim, common } = diceCoeff(g1.fps, g2.fps));
                     }
-                    const level = classify(sim, cfg.thresholds) as 1 | 2 | 3;
-                    if (level < 1) continue;
-                    // ---- evidence metrics (group pair, computed once) ----
-                    let mSeq: number | null = null;
-                    let mTf: number | null = null;
-                    let mSt: number | null = null;
-                    let mFu: number | null = null;
-                    if (stats.pairs < MAX_PAIRS_PER_REPORT) {
-                        if (i === j || g1.codeHash === g2.codeHash) {
-                            // identical normalized streams: every derived
-                            // metric is 1 by construction (skip the work)
-                            mSeq = 1;
-                            mTf = 1;
-                            mSt = 1;
-                            mFu = 1;
-                        } else {
-                            mSeq = seqSimilarity(g1.art.baseHashes, g2.art.baseHashes)?.sim ?? null;
-                            mTf = tfidfSimilarity(g1.art.tf, g2.art.tf, df, nDocs);
-                            mSt = structSimilarity(g1.art.structVec, g2.art.structVec);
-                            // function bodies only compare within a language
-                            // family — cross-family 0 would be misleading
-                            mFu = g1.art.family === g2.art.family
-                                ? funcSimilarity(g1.art.funcs, g2.art.funcs) : null;
-                        }
+                    if (i !== j) {
+                        hist[Math.min(100, Math.round(sim * 100))]++;
+                        crossPairs++;
                     }
-                    for (const [uid1, m1] of g1.members) {
-                        for (const [uid2, m2] of g2.members) {
-                            if (uid1 === uid2) continue;
-                            if (i === j && uid1 > uid2) continue; // same group: emit once
-                            if (stats.pairs >= MAX_PAIRS_PER_REPORT) {
-                                if (!pairCapLogged) {
-                                    pairCapLogged = true;
-                                    ctx.logger.warn(
-                                        'sim.scan %s: pair cap %d reached, remaining pairs for this report are dropped',
-                                        tid.toHexString(), MAX_PAIRS_PER_REPORT,
-                                    );
-                                }
-                                continue;
-                            }
-                            const a = uid1 < uid2 ? uid1 : uid2;
-                            const b = uid1 < uid2 ? uid2 : uid1;
-                            const ra = uid1 < uid2 ? m1 : m2;
-                            const rb = uid1 < uid2 ? m2 : m1;
-                            // per-rid evidence: same-group members may have
-                            // renamed variables / different comments
-                            const ea = ridArt.get(ra.rid.toHexString())!;
-                            const eb = ridArt.get(rb.rid.toHexString())!;
-                            pairDocs.push({
-                                domainId, tid, reportId, pid,
-                                uid1: a, uid2: b, rid1: ra.rid, rid2: rb.rid,
-                                lang1: ra.lang, lang2: rb.lang,
-                                similarity: Math.round(sim * 10000) / 10000,
-                                level, common, createdAt: new Date(),
-                                simSeq: mSeq === null ? null : round4(mSeq),
-                                simTfidf: mTf === null ? null : round4(mTf),
-                                simVar: (() => {
-                                    const v = varSimilarity(ea.idents, eb.idents);
-                                    return v === null ? null : round4(v);
-                                })(),
-                                simFunc: mFu === null ? null : round4(mFu),
-                                simStruct: mSt === null ? null : round4(mSt),
-                                sharedComments: sharedCommentCount(ea.commentHashes, eb.commentHashes),
-                                flags1: ea.flags.length ? ea.flags : undefined,
-                                flags2: eb.flags.length ? eb.flags : undefined,
-                            });
-                            stats.pairs++;
-                            stats[`l${level}` as 'l1' | 'l2' | 'l3']++;
-                        }
+                    // buffer above-threshold pairs for pass 2: level gating
+                    // moved to member expansion (classifyPair is per member
+                    // pair now), but the threshold keeps the buffer bounded
+                    if (sim >= cfg.thresholds.suspected
+                        && buffered.length < MAX_BUFFERED_GROUP_PAIRS
+                        && stats.pairs < MAX_PAIRS_PER_REPORT) {
+                        buffered.push({ i, j, sim, common });
                     }
                 }
                 await yieldLoop();
                 await maybeBeat();
+            }
+            const trivial = histogramMedian(hist, crossPairs) >= TRIVIAL_MEDIAN
+                && crossPairs >= TRIVIAL_MIN_PAIRS;
+            if (trivial) trivialPids.push(pid);
+
+            // ---- pass 2: evidence metrics + member expansion on the buffer ----
+            for (let bi = 0; bi < buffered.length; bi++) {
+                if (bi % 32 === 31) {
+                    await yieldLoop();
+                    await maybeBeat();
+                }
+                const { i, j, sim, common } = buffered[bi];
+                const g1 = list[i];
+                const g2 = list[j];
+                // ---- evidence metrics (group pair, computed once) ----
+                let mSeq: number | null = null;
+                let mTf: number | null = null;
+                let mSt: number | null = null;
+                let mFu: number | null = null;
+                if (stats.pairs < MAX_PAIRS_PER_REPORT) {
+                    if (i === j || g1.codeHash === g2.codeHash) {
+                        // identical normalized streams: every derived
+                        // metric is 1 by construction (skip the work)
+                        mSeq = 1;
+                        mTf = 1;
+                        mSt = 1;
+                        mFu = 1;
+                    } else {
+                        mSeq = seqSimilarity(g1.art.baseHashes, g2.art.baseHashes)?.sim ?? null;
+                        mTf = tfidfSimilarity(g1.art.tf, g2.art.tf, df, nDocs);
+                        mSt = structSimilarity(g1.art.structVec, g2.art.structVec);
+                        // function bodies only compare within a language
+                        // family — cross-family 0 would be misleading
+                        mFu = g1.art.family === g2.art.family
+                            ? funcSimilarity(g1.art.funcs, g2.art.funcs) : null;
+                    }
+                }
+                for (const [uid1, m1] of g1.members) {
+                    for (const [uid2, m2] of g2.members) {
+                        if (uid1 === uid2) continue;
+                        if (i === j && uid1 > uid2) continue; // same group: emit once
+                        if (stats.pairs >= MAX_PAIRS_PER_REPORT) {
+                            if (!pairCapLogged) {
+                                pairCapLogged = true;
+                                ctx.logger.warn(
+                                    'sim.scan %s: pair cap %d reached, remaining pairs for this report are dropped',
+                                    tid.toHexString(), MAX_PAIRS_PER_REPORT,
+                                );
+                            }
+                            continue;
+                        }
+                        const a = uid1 < uid2 ? uid1 : uid2;
+                        const b = uid1 < uid2 ? uid2 : uid1;
+                        const ra = uid1 < uid2 ? m1 : m2;
+                        const rb = uid1 < uid2 ? m2 : m1;
+                        // per-rid evidence: same-group members may have
+                        // renamed variables / different comments
+                        const ea = ridArt.get(ra.rid.toHexString())!;
+                        const eb = ridArt.get(rb.rid.toHexString())!;
+                        // lexical channel: same-group members with different
+                        // identifier names score below 1 here — the signal
+                        // that gates the "identical" label on normal problems
+                        // and ranks levels entirely on trivial ones
+                        const fl1 = ridFpsLex.get(ra.rid.toHexString())!;
+                        const fl2 = ridFpsLex.get(rb.rid.toHexString())!;
+                        const lexSim = fl1.length && fl2.length
+                            ? diceCoeff(fl1, fl2).sim : null;
+                        const varSim = varSimilarity(ea.idents, eb.idents);
+                        const level = classifyPair(
+                            sim, lexSim, varSim, trivial, cfg.thresholds,
+                        ) as 1 | 2 | 3;
+                        if (level < 1) continue;
+                        pairDocs.push({
+                            domainId, tid, reportId, pid,
+                            uid1: a, uid2: b, rid1: ra.rid, rid2: rb.rid,
+                            lang1: ra.lang, lang2: rb.lang,
+                            similarity: Math.round(sim * 10000) / 10000,
+                            level, common, createdAt: new Date(),
+                            simSeq: mSeq === null ? null : round4(mSeq),
+                            simTfidf: mTf === null ? null : round4(mTf),
+                            simLex: lexSim === null ? null : round4(lexSim),
+                            simVar: varSim === null ? null : round4(varSim),
+                            simFunc: mFu === null ? null : round4(mFu),
+                            simStruct: mSt === null ? null : round4(mSt),
+                            sharedComments: sharedCommentCount(ea.commentHashes, eb.commentHashes),
+                            flags1: ea.flags.length ? ea.flags : undefined,
+                            flags2: eb.flags.length ? eb.flags : undefined,
+                        });
+                        stats.pairs++;
+                        stats[`l${level}` as 'l1' | 'l2' | 'l3']++;
+                    }
+                }
             }
             if (!(await setProgress(reportId, pi + 1, pids.length, runId))) throw new SupersededError();
             if (pairDocs.length >= 2000) {
@@ -474,11 +545,14 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         lastBeat = Date.now();
         if (pairDocs.length) await insertPairs(pairDocs);
         stats.users = uids.size;
+        if (trivialPids.length) stats.trivialPids = trivialPids;
         if (!(await finishReport(reportId, stats, runId))) throw new SupersededError();
         ctx.logger.info(
-            'sim.scan done %s/%s in %dms, %d pairs (subs=%d skipped: short=%d big=%d empty=%d)',
+            'sim.scan done %s/%s in %dms, %d pairs (subs=%d skipped: short=%d big=%d empty=%d'
+            + ' trivial pids: %s)',
             report.domainId, report.tid.toHexString(), Date.now() - startedAt, stats.pairs,
             stats.submissions, stats.skippedShort, stats.skippedBig, stats.skippedEmpty,
+            trivialPids.length ? trivialPids.join(',') : 'none',
         );
     } catch (e) {
         if (e instanceof SupersededError) {

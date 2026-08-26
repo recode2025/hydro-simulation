@@ -39,6 +39,10 @@ export interface ReportDoc {
         /** fingerprints served from cache this run — visible proof a rescan
          *  re-executed (records immutable => same result) vs stale data */
         cacheHits?: number;
+        /** problems auto-detected as trivial (structural similarity saturated
+         *  for the whole field): levels there were decided by the lexical
+         *  (keep-names) channel instead of structure */
+        trivialPids?: number[];
     };
     mode: 'latest' | 'all';
     config: {
@@ -83,9 +87,12 @@ export interface PairDoc {
     level: 1 | 2 | 3;
     common: number;
     createdAt: Date;
-    // ---- evidence metrics (dice remains the only level gate) ----
+    // ---- evidence metrics ----
     /** token-level LCS similarity 2*LCS/(n+m); null = n/a (too large/empty) */
     simSeq?: number | null;
+    /** dice over keep-names lexical fingerprints — drops hard on rename;
+     *  null = n/a (stream shorter than k). Participates in level gating. */
+    simLex?: number | null;
     /** cosine tf-idf similarity; null = n/a */
     simTfidf?: number | null;
     /** dice over distinctive identifier names; null = no distinctive names */
@@ -120,6 +127,8 @@ export interface FingerprintDoc {
     schema?: number;
     /** pack(fnv32a per token) for sequence similarity */
     baseHashes?: Buffer;
+    /** pack(fnv32a per token, identifier NAMES kept) — lexical channel, PER-RID */
+    lexBaseHashes?: Buffer;
     /** token.v -> count for tf-idf */
     tf?: Record<string, number>;
     /** fixed-dim structure profile */

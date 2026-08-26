@@ -29,21 +29,33 @@
     function init() {
         var container = document.querySelector('[data-sim-graph]');
         if (!container) return;
-        var url = container.getAttribute('data-url');
         var canvas = container.querySelector('canvas');
         var tooltip = container.querySelector('[data-sim-tooltip]');
         var emptyBox = container.querySelector('[data-sim-empty]');
         var statEl = document.querySelector('[data-sim-stat]');
         var failMsg = container.getAttribute('data-msg-fail') || 'Failed to load graph data';
+
+        function start(payload) {
+            if (payload && payload.nodes) {
+                new GraphView(container, canvas, tooltip, emptyBox, statEl, payload);
+                return;
+            }
+            emptyBox.textContent = failMsg;
+            emptyBox.hidden = false;
+        }
+
+        // server-rendered payload first: zero fetches, zero API/cache
+        // dependencies — the graph renders straight from the HTML
+        if (window.__SIM_GRAPH__) return start(window.__SIM_GRAPH__);
+
+        // fetch path kept as a fallback only (older cached page, debugging)
+        var url = container.getAttribute('data-url');
         fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'level=1')
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json();
             })
-            .then(function (payload) {
-                if (!payload || !payload.nodes) throw new Error('bad payload');
-                new GraphView(container, canvas, tooltip, emptyBox, statEl, payload);
-            })
+            .then(start)
             .catch(function (e) {
                 // localized headline + raw detail, so a failed fetch can never
                 // masquerade as "no pairs"

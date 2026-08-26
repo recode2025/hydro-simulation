@@ -212,3 +212,41 @@ test('collectors: pascal idents are lowercased (set-friendly)', () => {
     tokenize('Var Count: Integer;', 'pascal', { ident: (w) => idents.push(w) });
     assert.deepEqual(idents, ['count']);
 });
+
+test('tok collector: identifiers keep names, literals stay normalized', () => {
+    const lex: string[] = [];
+    const tokens = tokenize('int cnt = 3;\nprintf("%d", cnt);\n// note\n', 'c', {
+        tok: (_k, v) => lex.push(v),
+    });
+    const stream = tokens.map((t) => t.v);
+    // normalized stream: identifiers are V, number N, string S, comment gone
+    assert.ok(stream.includes('V'));
+    assert.ok(!stream.includes('cnt'));
+    assert.ok(stream.includes('N'));
+    assert.ok(stream.includes('S'));
+    // lexical stream: identifier text kept, keywords pass through, literals
+    // still normalized (renaming should move this stream, retyping not)
+    assert.ok(lex.includes('cnt'));
+    assert.ok(lex.includes('int'));
+    assert.ok(lex.includes('printf'));
+    assert.ok(lex.includes('N'));
+    assert.ok(lex.includes('S'));
+    assert.ok(!lex.join(' ').includes('note'));
+    // one tok call per pushed token — streams stay index-aligned
+    assert.equal(lex.length, tokens.length);
+});
+
+test('tok collector: rename moves the lexical stream, not the normalized one', () => {
+    const a = 'int alpha = 1; alpha += 2;';
+    const b = 'int beta_ = 1; beta_ += 2;';
+    const lexText = (code: string) => {
+        const out: string[] = [];
+        tokenize(code, 'c', { tok: (_k, v) => out.push(v) });
+        return out.join('\n');
+    };
+    // structurally identical (the codeHash group would collapse them)
+    assert.equal(canon(a, 'c'), canon(b, 'c'));
+    // lexically different — the rename-evasion signal
+    assert.notEqual(lexText(a), lexText(b));
+    assert.equal(lexText(a), lexText(a));
+});

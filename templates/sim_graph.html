@@ -26,8 +26,9 @@
     <div class="sim-graph-tooltip" data-sim-tooltip hidden></div>
     <div class="sim-graph-empty" data-sim-empty hidden>{{ _('No similar pair to display') }}</div>
   </div>
+  <script>window.__SIM_GRAPH__ = {{ payloadJson|safe }};</script>
 </div>
 {% endblock %}
 {% block script %}
-<script src="{{ UiContext.cdn_prefix }}sim/graph.js?v=5" defer></script>
+<script src="{{ UiContext.cdn_prefix }}sim/graph.js?v=6" defer></script>
 {% endblock %}

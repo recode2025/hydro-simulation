@@ -3,6 +3,11 @@
  *
  * - Sorensen-Dice over language-normalized k-gram fingerprints
  * - levels: identical (>=0.95) / high (>=0.75) / suspected (>=0.55) / none
+ *   (two-channel gating: structure decides, but "identical" additionally
+ *   requires name evidence — lexical (identifiers kept) or identifier-set
+ *   similarity — so a renamed copy reads "High", not "Identical". Problems
+ *   whose structural Dice median saturates (>=0.8 over >=10 group pairs) are
+ *   auto-detected as trivial and ranked entirely by the lexical channel.)
  * - runs AFTER a contest/homework ends (schedule + hourly sweep + manual),
  *   never on submission, to save compute
  * - admin only: every route requires PERM_EDIT_DOMAIN
