@@ -104,6 +104,12 @@
         <div class="sim-statcard__num">{{ report.stats.submissions }}</div>
         <div class="sim-statcard__label">{{ _('Submissions scanned') }}</div>
       </div>
+      {% if report.stats.cacheHits != null %}
+      <div class="sim-statcard sim-statcard--muted" title="{{ _('Fingerprints served from the cache. The scan still re-executed and recomputed every pair — submitted code is immutable, so identical input yields identical output.') }}">
+        <div class="sim-statcard__num">{{ report.stats.cacheHits }}</div>
+        <div class="sim-statcard__label">{{ _('Cache hits') }}</div>
+      </div>
+      {% endif %}
       {% if report.stats.skipped %}
       <div class="sim-statcard sim-statcard--muted" title="{{ _('Short') }}: {{ report.stats.skippedShort|default(0) }} · {{ _('Large') }}: {{ report.stats.skippedBig|default(0) }} · {{ _('Empty') }}: {{ report.stats.skippedEmpty|default(0) }}">
         <div class="sim-statcard__num">{{ report.stats.skipped }}</div>

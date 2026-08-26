@@ -41,6 +41,8 @@
 'Mode': 模式
 'Users': 参与用户
 'Submissions scanned': 扫描提交数
+'Cache hits': 缓存命中
+'Fingerprints served from the cache. The scan still re-executed and recomputed every pair — submitted code is immutable, so identical input yields identical output.': 指纹由缓存提供。扫描仍然重新执行并重新计算了每一对——已提交的代码不可变，因此相同输入必然得到相同结果。
 'skipped': 已跳过
 'Similar pairs': 相似对
 'Finished at': 完成时间

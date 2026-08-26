@@ -193,7 +193,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
     };
     const stats = {
         users: 0, submissions: 0, skipped: 0, pairs: 0, l1: 0, l2: 0, l3: 0,
-        skippedShort: 0, skippedBig: 0, skippedEmpty: 0,
+        skippedShort: 0, skippedBig: 0, skippedEmpty: 0, cacheHits: 0,
     };
     let pairCapLogged = false;
     const uids = new Set<number>();
@@ -202,9 +202,14 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
         const tdoc = await ContestModel.get(domainId, tid);
         if (!ContestModel.isDone(tdoc)) throw new Error('contest not ended');
 
-        // idempotent reruns: a requeued/recovered rerun of THIS report must not
-        // duplicate pairs inserted by the previous attempt
-        await collPair.deleteMany({ reportId });
+        // wipe by CONTEST, not by reportId: the pair queries on the detail /
+        // graph pages filter by {domainId, tid} with no reportId, so pairs of
+        // an older report survived every "Scan again" (postRun does not delete
+        // first) and the page showed old+new merged — the "rescan reuses old
+        // data" bug. Only one report can be active per contest (CAS claim +
+        // createReport guard), so after any successful scan the remaining
+        // pairs belong to that report alone.
+        await collPair.deleteMany({ domainId, tid });
 
         // ---- collect target rdocs, grouped by pid ----
         const byPid = new Map<number, any[]>();
@@ -268,6 +273,9 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                 let rart: RidArt | null = null;
                 const cached = fpCache.get(ridHex);
                 if (cached && cached.k === cfg.k && cached.schema === FP_SCHEMA) {
+                    // visible proof the scan RERAN (records immutable => same
+                    // result) instead of serving stale data
+                    stats.cacheHits++;
                     ch = cached.codeHash;
                     fps = unpack(cached.hashes);
                     tokenCount = cached.tokenCount;

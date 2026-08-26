@@ -38,6 +38,8 @@
 'Mode': Mode
 'Users': Users
 'Submissions scanned': Submissions scanned
+'Cache hits': Cache hits
+'Fingerprints served from the cache. The scan still re-executed and recomputed every pair — submitted code is immutable, so identical input yields identical output.': Fingerprints served from the cache. The scan still re-executed and recomputed every pair — submitted code is immutable, so identical input yields identical output.
 'skipped': skipped
 'Similar pairs': Similar pairs
 'Finished at': Finished at

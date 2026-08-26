@@ -36,6 +36,9 @@ export interface ReportDoc {
         users: number; submissions: number; skipped: number;
         pairs: number; l1: number; l2: number; l3: number;
         skippedShort?: number; skippedBig?: number; skippedEmpty?: number;
+        /** fingerprints served from cache this run — visible proof a rescan
+         *  re-executed (records immutable => same result) vs stale data */
+        cacheHits?: number;
     };
     mode: 'latest' | 'all';
     config: { k: number; minTokens: number; thresholds: { identical: number; high: number; suspected: number } };
@@ -149,6 +152,32 @@ export function isTransientDbError(e: unknown): boolean {
     return /MongoNotConnected|must be connected|MongoNetwork|MongoTimeout|TopologyClosed|ServerSelection|pool destroyed/i.test(s);
 }
 
+/** Run a db write, retrying TRANSIENT failures (mongo restart window, network
+ *  blip). Sub-second topology drops — the exact signature of an instance
+ *  restart — are usually gone by the next operation (the requeue writes after
+ *  the very error that lands here have been observed to succeed instantly);
+ *  retrying in place keeps a nearly-finished scan from being requeued and
+ *  recomputed from scratch (the "progress bar hit 100% then reset" bug).
+ *  A `false` return (lost ownership race) is NOT retried: it is a legitimate
+ *  answer, not an error. `onRetry` runs between attempts (insertPairs uses it
+ *  to wipe a partially-written flush so the retry stays idempotent). */
+async function withTransientRetry<T>(
+    fn: () => Promise<T>,
+    { tries = 3, delayMs = 2000, onRetry }: {
+        tries?: number; delayMs?: number; onRetry?: () => Promise<void> | void;
+    } = {},
+): Promise<T> {
+    for (let i = 0; ; i++) {
+        try {
+            return await fn();
+        } catch (e) {
+            if (i >= tries - 1 || !isTransientDbError(e)) throw e;
+            await new Promise((r) => setTimeout(r, delayMs));
+            if (onRetry) await onRetry();
+        }
+    }
+}
+
 export async function ensureIndexes(ctx: Context) {
     await ctx.db.ensureIndexes(
         collFp as any,
@@ -257,63 +286,66 @@ export async function claimReport(reportId: ObjectId, fresh = true) {
  *  drops so the superseded run's writes stop matching immediately. `extra`
  *  adds fields to the set (e.g. lastError / attempts on transient retries). */
 export function requeueReport(reportId: ObjectId, runId?: ObjectId, extra: Record<string, any> = {}) {
-    return collReport.updateOne(
+    return withTransientRetry(() => collReport.updateOne(
         ownedFilter(reportId, runId),
         {
             $set: { status: 'waiting', lockedAt: new Date(), 'progress.processed': 0, ...extra },
             $unset: { runId: '' },
         },
-    ).then((r) => r.modifiedCount === 1);
+    ).then((r) => r.modifiedCount === 1));
 }
 
 /** All run-scoped writes return false when this run no longer owns the
- *  report (superseded / requeued / finished elsewhere) — callers abort. */
+ *  report (superseded / requeued / finished elsewhere) — callers abort.
+ *  They retry transient db errors in place (see withTransientRetry). */
 export function heartbeat(reportId: ObjectId, runId?: ObjectId) {
-    return collReport.updateOne(
+    return withTransientRetry(() => collReport.updateOne(
         ownedFilter(reportId, runId),
         { $set: { lockedAt: new Date() } },
-    ).then((r) => r.modifiedCount === 1);
+    ).then((r) => r.modifiedCount === 1));
 }
 
 export function setProgress(reportId: ObjectId, processed: number, total: number, runId?: ObjectId) {
-    return collReport.updateOne(
+    return withTransientRetry(() => collReport.updateOne(
         ownedFilter(reportId, runId),
         { $set: { 'progress.processed': processed, 'progress.total': total, lockedAt: new Date() } },
-    ).then((r) => r.modifiedCount === 1);
+    ).then((r) => r.modifiedCount === 1));
 }
 
 export function failReport(reportId: ObjectId, error: string, runId?: ObjectId) {
-    return collReport.updateOne(
+    return withTransientRetry(() => collReport.updateOne(
         // ownership precondition: a zombie run (superseded by a requeued one)
         // must not overwrite the new run's state
         ownedFilter(reportId, runId),
         { $set: { status: 'failed', error, finishedAt: new Date() } },
-    ).then((r) => r.modifiedCount === 1);
+    ).then((r) => r.modifiedCount === 1));
 }
 
 export function finishReport(reportId: ObjectId, stats: ReportDoc['stats'], runId?: ObjectId) {
-    return collReport.updateOne(
+    return withTransientRetry(() => collReport.updateOne(
         ownedFilter(reportId, runId),
         { $set: { status: 'done', stats, finishedAt: new Date() }, $unset: { lastError: '' } },
-    ).then((r) => r.modifiedCount === 1);
+    ).then((r) => r.modifiedCount === 1));
 }
 
-export async function upsertFingerprint(fp: Omit<FingerprintDoc, '_id'>) {
-    const write = (upsert: boolean) => collFp.updateOne(
-        { rid: fp.rid },
-        { $set: { ...fp } },
-        upsert ? { upsert: true } : undefined,
-    );
-    try {
-        await write(true);
-    } catch (e) {
-        // Two runs writing the same rid concurrently (a rescan started while
-        // the superseded run is still winding down) race on the unique rid
-        // index and the loser gets E11000. The doc exists now — converge with
-        // a plain update instead of failing the whole scan over the cache.
-        if (!/E11000|duplicate key/i.test(String((e as Error)?.message))) throw e;
-        await write(false);
-    }
+export function upsertFingerprint(fp: Omit<FingerprintDoc, '_id'>) {
+    return withTransientRetry(async () => {
+        const write = (upsert: boolean) => collFp.updateOne(
+            { rid: fp.rid },
+            { $set: { ...fp } },
+            upsert ? { upsert: true } : undefined,
+        );
+        try {
+            await write(true);
+        } catch (e) {
+            // Two runs writing the same rid concurrently (a rescan started while
+            // the superseded run is still winding down) race on the unique rid
+            // index and the loser gets E11000. The doc exists now — converge with
+            // a plain update instead of failing the whole scan over the cache.
+            if (!/E11000|duplicate key/i.test(String((e as Error)?.message))) throw e;
+            await write(false);
+        }
+    });
 }
 
 export async function getFingerprintMap(rids: ObjectId[]) {
@@ -330,28 +362,22 @@ export async function getFingerprintMap(rids: ObjectId[]) {
  *  every (report, problem)'s pairs pass through exactly ONE flush, so
  *  deleting {reportId, pid ∈ buffer} before re-inserting can neither
  *  duplicate this flush nor touch pairs other flushes already wrote. */
-export async function insertPairs(docs: Omit<PairDoc, '_id'>[]) {
-    if (!docs.length) return;
+export function insertPairs(docs: Omit<PairDoc, '_id'>[]) {
+    if (!docs.length) return Promise.resolve();
     const reportId = docs[0].reportId;
     const pids = Array.from(new Set(docs.map((d) => d.pid)));
-    for (let attempt = 0; ; attempt++) {
-        try {
-            for (let i = 0; i < docs.length; i += 500) {
-                const chunk = docs.slice(i, i + 500).map((d) => ({ ...d, _id: new ObjectId() }));
-                if (chunk.length) await collPair.insertMany(chunk, { ordered: false });
-            }
-            return;
-        } catch (e) {
-            if (attempt >= 2 || !isTransientDbError(e)) throw e;
-            // sub-second topology blips (service restart window) are usually
-            // gone by the next op — the requeue writes after the very error
-            // that lands here have been observed to succeed immediately
-            await new Promise((r) => setTimeout(r, 2000));
-            try {
-                await collPair.deleteMany({ reportId, pid: { $in: pids } });
-            } catch { /* best effort; a rerun's reportId wipe cleans up */ }
+    return withTransientRetry(async () => {
+        for (let i = 0; i < docs.length; i += 500) {
+            const chunk = docs.slice(i, i + 500).map((d) => ({ ...d, _id: new ObjectId() }));
+            if (chunk.length) await collPair.insertMany(chunk, { ordered: false });
         }
-    }
+    }, {
+        // wipe this flush's partial writes so the retry cannot duplicate;
+        // best effort — a rerun's contest-wide wipe cleans up regardless
+        onRetry: () => {
+            collPair.deleteMany({ reportId, pid: { $in: pids } }).catch(() => { });
+        },
+    });
 }
 
 export function deleteContestData(domainId: string, tid: ObjectId) {
