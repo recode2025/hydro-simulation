@@ -357,22 +357,41 @@ export function deleteContestTasks(domainId: string, tid: ObjectId) {
     });
 }
 
-/** Admin "delete": wipe the pairs and mark every report CANCELLED instead of
- *  deleting the docs. The cancelled reports are tombstones — the sweep
- *  catch-up and the post-contest precheck both look for "a report already
- *  exists" and skip the contest, so a deleted scan STAYS deleted. Deleting
- *  the docs outright left the contest with zero reports, and the next sweep
- *  pass (which fires right after every plugin update re-registers it)
- *  recreated the whole scan from scratch. A manual "Scan" still works:
- *  createReport only blocks on waiting/running. */
+/** Admin "delete": wipe EVERYTHING — all pairs AND all report docs (stats,
+ *  progress, errors included). What remains is a single inert tombstone doc
+ *  carrying NO scan results; it exists only as the "do not auto-recreate"
+ *  lock that the sweep catch-up and the post-contest precheck respect.
+ *  Wiping with no marker at all left the contest with zero reports, and the
+ *  next sweep pass (which fires right after every plugin update re-registers
+ *  it) recreated the whole scan from scratch within the 90-day lookback
+ *  window. A manual "Scan" still works: createReport only blocks on
+ *  waiting/running, and it supersedes the tombstone as the latest report. */
 export async function cancelContestData(domainId: string, tid: ObjectId) {
+    const latest = await collReport.findOne(
+        { domainId, tid },
+        { sort: { createdAt: -1 }, projection: { title: 1, rule: 1, beginAt: 1, endAt: 1, mode: 1 } },
+    );
     await Promise.all([
         collPair.deleteMany({ domainId, tid }),
-        collReport.updateMany(
-            { domainId, tid, status: { $in: ['waiting', 'running', 'done', 'failed'] } },
-            { $set: { status: 'cancelled', finishedAt: new Date() }, $unset: { error: '', lastError: '' } },
-        ),
+        collReport.deleteMany({ domainId, tid }),
     ]);
+    // No config on the tombstone: detail-page form defaults fall back to the
+    // CURRENT settings instead of the deleted scan's old snapshot.
+    await collReport.insertOne({
+        _id: new ObjectId(),
+        domainId,
+        tid,
+        title: latest?.title ?? '',
+        rule: latest?.rule ?? 'acm',
+        beginAt: latest?.beginAt ?? new Date(0),
+        endAt: latest?.endAt ?? new Date(0),
+        status: 'cancelled',
+        progress: { total: 0, processed: 0 },
+        mode: latest?.mode ?? 'latest',
+        triggeredBy: latest?.triggeredBy ?? 0,
+        createdAt: new Date(),
+        finishedAt: new Date(),
+    } as ReportDoc);
 }
 
 export function deleteDomainData(domainId: string) {

@@ -79,14 +79,30 @@ async function triggerScan(
         startScanNow(reportId);
         return true;
     }
-    // A report is already in flight for this contest. If it is WAITING it may
-    // be a stale one whose execution was lost (crashed run, consumed task,
-    // pre-fix bug) — adopt it and run NOW instead of silently doing nothing,
-    // which the user reads as "stuck in queue forever". A running one is
+    // createReport refused: a report is already in flight. If it is WAITING,
+    // do NOT adopt it — it snapshots the config (mode / thresholds /
+    // minTokens) it was CREATED with, so adopting made "Scan again" after a
+    // settings change silently rerun the OLD config ("rescan reuses old
+    // data"). Drop the stale report and its pending task, then fall through
+    // to a fresh create below with the CURRENT settings. A RUNNING one is
     // genuinely working: leave it alone.
     const active = await getActiveReport(domainId, tid);
-    if (active?.status === 'waiting') startScanNow(active._id);
-    return false;
+    if (active?.status !== 'waiting') return false;
+    await deleteContestTasks(domainId, tid);
+    await collReport.deleteOne({ _id: active._id, status: 'waiting' });
+    const freshId = await createReport({
+        domainId,
+        tid,
+        title: tdoc.title,
+        rule: tdoc.rule,
+        beginAt: tdoc.beginAt,
+        endAt: tdoc.endAt,
+        mode,
+        config: { k: cfg.k, minTokens: cfg.minTokens, thresholds: resolveThresholds(override, cfg.thresholds) },
+        triggeredBy: uid,
+    });
+    if (freshId) startScanNow(freshId);
+    return !!freshId;
 }
 
 /**
