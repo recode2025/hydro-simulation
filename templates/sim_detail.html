@@ -21,6 +21,9 @@
       <a class="rounded button" href="{{ urlGraph }}">
         <span class="icon icon-org"></span> {{ _('Plagiarism Network') }}
       </a>
+      <a class="rounded button" href="{{ urlDebug }}" target="_blank">
+        <span class="icon icon-info"></span> {{ _('Diagnostics') }}
+      </a>
     </div>
   </div>
   <div class="section__body">
@@ -29,6 +32,9 @@
       <p>{{ _('This contest has not been scanned yet.') }}</p>
     {% elif report.status == 'waiting' %}
       <p><span class="sim-badge sim-badge--waiting">{{ _('Waiting') }}</span> {{ _('The scan is queued and will run soon.') }}</p>
+      {% if report.progress.total %}
+      <p class="supplementary">{{ _('A previous attempt was interrupted; the scan will restart from the beginning.') }}</p>
+      {% endif %}
       <form method="post" class="sim-inline-form">
         <input type="hidden" name="operation" value="runNow">
         <input type="hidden" name="tid" value="{{ tid }}">

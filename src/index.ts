@@ -14,11 +14,11 @@ import { ObjectId } from 'mongodb';
 import { runInBackground, setBackgroundContext } from './background';
 import { readConfig, runDetection } from './detect';
 import {
-    SimDiffHandler, SimDetailHandler, SimGraphApiHandler, SimGraphHandler, SimListHandler,
-    SimStatusHandler,
+    SimDebugHandler, SimDiffHandler, SimDetailHandler, SimGraphApiHandler, SimGraphHandler,
+    SimListHandler, SimStatusHandler,
 } from './handler';
 import {
-    casStatus, collReport, createReport, deleteDomainData, ensureIndexes,
+    claimReport, collReport, createReport, deleteDomainData, ensureIndexes, requeueReport,
 } from './model';
 
 const Setting = SettingModel.Setting;
@@ -85,6 +85,7 @@ export default definePlugin({
         ctx.Route('domain_sim_list', '/domain/sim', SimListHandler, PERM.PERM_EDIT_DOMAIN);
         ctx.Route('domain_sim_detail', '/domain/sim/:tid', SimDetailHandler, PERM.PERM_EDIT_DOMAIN);
         ctx.Route('domain_sim_status', '/domain/sim/:tid/status.json', SimStatusHandler, PERM.PERM_EDIT_DOMAIN);
+        ctx.Route('domain_sim_debug', '/domain/sim/:tid/debug.json', SimDebugHandler, PERM.PERM_EDIT_DOMAIN);
         // contest-scoped alias: the report also lives under the contest's own
         // URL space so admins can reach it per contest (/contest/<tid>/sim)
         ctx.Route('contest_sim', '/contest/:tid/sim', SimDetailHandler, PERM.PERM_EDIT_DOMAIN);
@@ -102,8 +103,8 @@ export default definePlugin({
             c.worker.addHandler('sim.scan', async (doc: any) => {
                 try {
                     const reportId: ObjectId = new ObjectId(doc.reportId);
-                    const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
-                    if (!ok) {
+                    const runId = await claimReport(reportId);
+                    if (!runId) {
                         // claim failed: find out why instead of dying silently
                         const cur = await collReport.findOne(
                             { _id: reportId },
@@ -113,13 +114,19 @@ export default definePlugin({
                             && (!cur.lockedAt || Date.now() - cur.lockedAt.getTime() > STALE_RUNNING_MS)) {
                             // zombie run (process died mid-detection): reclaim
                             // the lock and restart right here instead of
-                            // waiting for the next sweep
-                            await collReport.updateOne(
-                                { _id: reportId, status: 'running' },
-                                { $set: { lockedAt: new Date(), startedAt: new Date() } },
+                            // waiting for the next sweep. Rotating runId means
+                            // that if the old run is merely starved (not dead)
+                            // its writes stop matching and it aborts itself.
+                            const reclaimFilter: any = { _id: reportId, status: 'running' };
+                            if (cur.lockedAt) reclaimFilter.lockedAt = cur.lockedAt;
+                            const rotated = await collReport.updateOne(
+                                reclaimFilter,
+                                { $set: { lockedAt: new Date(), startedAt: new Date(), runId: new ObjectId() } },
                             );
-                            c.logger.warn('sim.scan %s: reclaimed stale running report, restarting', reportId.toHexString());
-                            runInBackground((bg) => runDetection(bg, reportId));
+                            if (rotated.modifiedCount === 1) {
+                                c.logger.warn('sim.scan %s: reclaimed stale running report, restarting', reportId.toHexString());
+                                runInBackground((bg) => runDetection(bg, reportId));
+                            }
                         } else {
                             // waiting = another task claimed it first (dup); done/
                             // failed/gone = expected after admin actions
@@ -193,12 +200,15 @@ export default definePlugin({
                         executeAfter: new Date(),
                     });
                 }
-                // 1) recover reports stuck in running (process died mid-run)
+                // 1) recover reports stuck in running (process died mid-run).
+                //    requeueReport resets progress and drops the old run's
+                //    token: a live-but-starved run aborts at its next write
+                //    instead of fighting the replacement over the report.
                 const stuck = await collReport.find({
                     status: 'running', lockedAt: { $lt: new Date(now - STALE_RUNNING_MS) },
                 }).limit(20).toArray();
                 for (const report of stuck) {
-                    const ok = await casStatus(report._id, 'running', 'waiting');
+                    const ok = await requeueReport(report._id);
                     if (ok) {
                         await ScheduleModel.add({
                             type: 'schedule', subType: 'sim.scan',

@@ -43,6 +43,10 @@ export interface ReportDoc {
     startedAt?: Date;
     finishedAt?: Date;
     lockedAt?: Date;
+    /** ownership token of the current run: stamped on claim, carried by every
+     *  write of that run so a superseded (swept/requeued) run cannot touch
+     *  the state of the run that replaced it. Absent on pre-token reports. */
+    runId?: ObjectId;
 }
 
 export interface PairDoc {
@@ -207,31 +211,72 @@ export function casStatus(
     ).then((r) => r.modifiedCount === 1);
 }
 
-export function heartbeat(reportId: ObjectId) {
-    return collReport.updateOne({ _id: reportId, status: 'running' }, { $set: { lockedAt: new Date() } }).then(() => { });
+/** Filter matching "this run still owns the report". A runId of undefined
+ *  (reports from before the token existed) degrades to the status-only
+ *  precondition, which is the old behavior. */
+function ownedFilter(reportId: ObjectId, runId?: ObjectId) {
+    return runId
+        ? { _id: reportId, status: 'running' as const, runId }
+        : { _id: reportId, status: 'running' as const };
 }
 
-export function setProgress(reportId: ObjectId, processed: number, total: number) {
+/** Atomically claim a waiting report for execution, stamping it with a fresh
+ *  run token. Returns the token, or null when the race was lost (already
+ *  claimed / done / gone). */
+export async function claimReport(reportId: ObjectId) {
+    const runId = new ObjectId();
+    const ok = await collReport.updateOne(
+        { _id: reportId, status: 'waiting' },
+        { $set: { status: 'running', lockedAt: new Date(), startedAt: new Date(), runId } },
+    ).then((r) => r.modifiedCount === 1);
+    return ok ? runId : null;
+}
+
+/** Put a running report back into the queue (sweep recovery, transient db
+ *  error, admin force-reset). Progress RESETS — a requeued report must read
+ *  as "will restart from scratch", never as a finished progress bar wearing
+ *  a Waiting badge (the "bar hit 100% then it said queued" bug). The runId
+ *  drops so the superseded run's writes stop matching immediately. */
+export function requeueReport(reportId: ObjectId, runId?: ObjectId) {
     return collReport.updateOne(
-        { _id: reportId, status: 'running' },
+        ownedFilter(reportId, runId),
+        {
+            $set: { status: 'waiting', lockedAt: new Date(), 'progress.processed': 0 },
+            $unset: { runId: '' },
+        },
+    ).then((r) => r.modifiedCount === 1);
+}
+
+/** All run-scoped writes return false when this run no longer owns the
+ *  report (superseded / requeued / finished elsewhere) — callers abort. */
+export function heartbeat(reportId: ObjectId, runId?: ObjectId) {
+    return collReport.updateOne(
+        ownedFilter(reportId, runId),
+        { $set: { lockedAt: new Date() } },
+    ).then((r) => r.modifiedCount === 1);
+}
+
+export function setProgress(reportId: ObjectId, processed: number, total: number, runId?: ObjectId) {
+    return collReport.updateOne(
+        ownedFilter(reportId, runId),
         { $set: { 'progress.processed': processed, 'progress.total': total, lockedAt: new Date() } },
-    ).then(() => { });
+    ).then((r) => r.modifiedCount === 1);
 }
 
-export function failReport(reportId: ObjectId, error: string) {
+export function failReport(reportId: ObjectId, error: string, runId?: ObjectId) {
     return collReport.updateOne(
-        // status precondition: a zombie run (superseded by a requeued one)
+        // ownership precondition: a zombie run (superseded by a requeued one)
         // must not overwrite the new run's state
-        { _id: reportId, status: 'running' },
+        ownedFilter(reportId, runId),
         { $set: { status: 'failed', error, finishedAt: new Date() } },
-    ).then(() => { });
+    ).then((r) => r.modifiedCount === 1);
 }
 
-export function finishReport(reportId: ObjectId, stats: ReportDoc['stats']) {
+export function finishReport(reportId: ObjectId, stats: ReportDoc['stats'], runId?: ObjectId) {
     return collReport.updateOne(
-        { _id: reportId, status: 'running' },
+        ownedFilter(reportId, runId),
         { $set: { status: 'done', stats, finishedAt: new Date() } },
-    ).then(() => { });
+    ).then((r) => r.modifiedCount === 1);
 }
 
 export function upsertFingerprint(fp: Omit<FingerprintDoc, '_id'>) {

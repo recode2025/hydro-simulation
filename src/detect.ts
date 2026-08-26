@@ -32,9 +32,17 @@ import {
 import type { PairDoc, ReportDoc } from './model';
 import {
     FP_SCHEMA, collPair, collReport, failReport, finishReport, getFingerprintMap, heartbeat,
-    insertPairs, isTransientDbError, setProgress, upsertFingerprint,
+    insertPairs, isTransientDbError, requeueReport, setProgress, upsertFingerprint,
 } from './model';
-import { casStatus } from './model';
+
+/** Thrown when a run-scoped write discovers this run no longer owns the
+ *  report (swept as a zombie, requeued, force-reset). The run stops
+ *  SILENTLY: no requeue, no fail — the replacement run owns the state. */
+class SupersededError extends Error {
+    constructor() {
+        super('sim run superseded');
+    }
+}
 
 export interface DetectConfig {
     k: number;
@@ -147,9 +155,28 @@ interface FpGroup {
 
 export async function runDetection(ctx: Context, reportId: ObjectId) {
     const report = await collReport.findOne({ _id: reportId });
-    if (!report || report.status !== 'running') return;
+    if (!report || report.status !== 'running') {
+        ctx.logger.warn(
+            'sim runDetection %s: skipped (report %s)', reportId.toHexString(),
+            report ? `status=${report.status}` : 'gone',
+        );
+        return;
+    }
+    ctx.logger.info(
+        'sim runDetection %s: start (domain=%s tid=%s mode=%s)',
+        reportId.toHexString(), report.domainId, report.tid.toHexString(), report.mode,
+    );
     const startedAt = Date.now();
+    // ownership token stamped by the claim: every write below carries it, so
+    // once this run is superseded its writes stop matching and it aborts
+    const runId = report.runId;
     let lastBeat = Date.now();
+    /** Refresh lockedAt at most every 25s; abort when ownership is lost. */
+    const maybeBeat = async () => {
+        if (Date.now() - lastBeat <= 25_000) return;
+        lastBeat = Date.now();
+        if (!(await heartbeat(reportId, runId))) throw new SupersededError();
+    };
     // thresholds/mode are snapshotted in the report; size limit stays live
     const live = readConfig(ctx);
     const cfg: DetectConfig = {
@@ -214,7 +241,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                 tid.toHexString(), cfg.mode,
             );
         }
-        await setProgress(reportId, 0, pids.length);
+        if (!(await setProgress(reportId, 0, pids.length, runId))) throw new SupersededError();
         const pairDocs: Omit<PairDoc, '_id'>[] = [];
 
         for (let pi = 0; pi < pids.length; pi++) {
@@ -293,10 +320,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                 stats.submissions++;
                 uids.add(rdoc.uid);
                 if (++processed % 25 === 0) await yieldLoop();
-                if (Date.now() - lastBeat > 25_000) {
-                    lastBeat = Date.now();
-                    await heartbeat(reportId);
-                }
+                await maybeBeat();
             }
 
             // ---- pairwise dice via group pairs ----
@@ -310,6 +334,15 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             const list = Array.from(groups.values());
             for (let i = 0; i < list.length; i++) {
                 for (let j = i; j < list.length; j++) {
+                    // yield + heartbeat INSIDE the j sweep: with O(n·m) LCS
+                    // evidence metrics one outer-i pass can block the event
+                    // loop for minutes, heartbeats stop, and the sweep
+                    // misjudges this live run as a zombie — flipping it back
+                    // to "waiting" at (or right after) 100% progress
+                    if ((j - i) % 32 === 31) {
+                        await yieldLoop();
+                        await maybeBeat();
+                    }
                     const g1 = list[i];
                     const g2 = list[j];
                     let sim: number;
@@ -394,35 +427,44 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
                     }
                 }
                 await yieldLoop();
-                // heartbeat here too: a long pairwise phase with no lockedAt
-                // refresh made the sweep mistake the scan for a dead one and
-                // flip it back to "waiting" mid-run
-                if (Date.now() - lastBeat > 25_000) {
-                    lastBeat = Date.now();
-                    await heartbeat(reportId);
-                }
+                await maybeBeat();
             }
-            await setProgress(reportId, pi + 1, pids.length);
+            if (!(await setProgress(reportId, pi + 1, pids.length, runId))) throw new SupersededError();
             if (pairDocs.length >= 2000) {
                 await insertPairs(pairDocs.splice(0, pairDocs.length));
             }
         }
+        // final flush: refresh the lock first — insertMany of the tail (up to
+        // 2000 docs in 500-doc chunks) happens AFTER the last progress write
+        // and must never read as a stale lock to the sweep
+        if (!(await heartbeat(reportId, runId))) throw new SupersededError();
+        lastBeat = Date.now();
         if (pairDocs.length) await insertPairs(pairDocs);
         stats.users = uids.size;
-        await finishReport(reportId, stats);
+        if (!(await finishReport(reportId, stats, runId))) throw new SupersededError();
         ctx.logger.info(
             'sim.scan done %s/%s in %dms, %d pairs (subs=%d skipped: short=%d big=%d empty=%d)',
             report.domainId, report.tid.toHexString(), Date.now() - startedAt, stats.pairs,
             stats.submissions, stats.skippedShort, stats.skippedBig, stats.skippedEmpty,
         );
     } catch (e) {
+        if (e instanceof SupersededError) {
+            // requeued / reset / replaced mid-flight: stop quietly, the
+            // replacement (or the queue) owns the report now
+            ctx.logger.info(
+                'sim.scan %s superseded mid-run, aborting this attempt', reportId.toHexString(),
+            );
+            return;
+        }
         ctx.logger.error('sim.scan failed for report %s', reportId.toHexString());
         ctx.logger.error(e);
         if (isTransientDbError(e)) {
             // mongo blip (restart / network): do NOT permanently fail the
             // report — put it back to waiting and requeue a retry
             try {
-                await casStatus(reportId, 'running', 'waiting');
+                // progress resets inside requeueReport, so the retried run
+                // reads as a fresh scan instead of a finished bar + Waiting
+                if (!(await requeueReport(reportId, runId))) return; // superseded elsewhere
                 await ScheduleModel.add({
                     type: 'schedule', subType: 'sim.scan',
                     domainId: report.domainId, tid: report.tid, reportId,
@@ -435,7 +477,7 @@ export async function runDetection(ctx: Context, reportId: ObjectId) {
             }
         }
         try {
-            await failReport(reportId, String(e));
+            await failReport(reportId, String(e), runId);
         } catch { /* db unavailable — hourly sweep recovery will pick it up */ }
     }
 }

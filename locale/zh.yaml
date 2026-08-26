@@ -76,6 +76,7 @@
 'Partners': 涉及对方
 'Pairs with shared comments': 存在共享注释的对
 'The scan is queued and will run soon.': 查重任务已排队，稍后自动执行。
+'A previous attempt was interrupted; the scan will restart from the beginning.': 上次扫描被中断，已重新排队，将从第一题开始重扫。
 'Scan is in progress; refresh this page later.': 查重进行中，请稍后刷新本页。
 'The scan failed: {0}': 查重失败：{0}
 'Similar Pairs': 相似代码对
@@ -141,3 +142,4 @@
 'Collected 0 readable submissions: every submission was skipped as EMPTY — the code storage could not be read. Check the storage service and rescan.': 收集到 0 份可读提交：所有提交都因代码为空被跳过——无法读取代码存储。请检查存储服务后重新扫描。
 'Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).': 收集到 0 份提交：没有任何提交记录属于该比赛。请确认比赛内确实有提交后重试（也可尝试「所有提交」模式）。
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.': 未发现相似对。查重只比较同题的不同用户；「每人每题取最后一次提交」模式只取每人每题的最后一次提交——如需要请用「所有提交」模式重扫或调低阈值。
+'Diagnostics': 诊断

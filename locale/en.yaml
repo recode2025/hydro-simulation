@@ -73,6 +73,7 @@
 'Partners': Partners
 'Pairs with shared comments': Pairs with shared comments
 'The scan is queued and will run soon.': The scan is queued and will run soon.
+'A previous attempt was interrupted; the scan will restart from the beginning.': A previous attempt was interrupted; the scan will restart from the beginning.
 'Scan is in progress; refresh this page later.': Scan is in progress; refresh this page later.
 'The scan failed: {0}': 'The scan failed: {0}'
 'Similar Pairs': Similar Pairs
@@ -133,3 +134,4 @@
 'Collected 0 readable submissions: every submission was skipped as EMPTY — the code storage could not be read. Check the storage service and rescan.': 'Collected 0 readable submissions: every submission was skipped as EMPTY — the code storage could not be read. Check the storage service and rescan.'
 'Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).': 'Collected 0 submissions: no submission record belongs to this contest. Make sure the contest actually has submissions, then rerun (also try "All submissions" mode).'
 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.': 'No similar pair found. Detection only compares DIFFERENT users on the same problem; "latest" mode only takes the last submission per user per problem — rescan with "All submissions" or lower thresholds if needed.'
+'Diagnostics': Diagnostics

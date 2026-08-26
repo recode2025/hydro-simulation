@@ -18,8 +18,8 @@ import { diffCellLimit, fetchCode, readConfig, runDetection } from './detect';
 import { lineDiff, splitLines } from './lib/lcs';
 import type { PairDoc } from './model';
 import {
-    casStatus, collPair, collReport, createReport, deleteContestData, getActiveReport,
-    getLatestReport, getLatestReportMap,
+    FP_SCHEMA, casStatus, claimReport, collFp, collPair, collReport, createReport,
+    deleteContestData, getActiveReport, getLatestReport, getLatestReportMap, requeueReport,
 } from './model';
 
 const PAGE_SIZE = 50;
@@ -106,8 +106,9 @@ async function triggerScan(
 function startScanNow(reportId: ObjectId) {
     runInBackground(async (ctx) => {
         try {
-            const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
-            if (!ok) return; // already running / done / deleted — nothing to do
+            const runId = await claimReport(reportId);
+            ctx.logger.info('sim manual start %s: claim=%s', reportId.toHexString(), !!runId);
+            if (!runId) return; // already running / done / deleted — nothing to do
             await runDetection(ctx, reportId);
         } catch (e) {
             ctx.logger.error('sim manual scan failed for %s', reportId.toHexString());
@@ -199,13 +200,15 @@ export class SimListHandler extends SimBaseHandler {
         this.response.redirect = this.url('domain_sim_list');
     }
 
-    /** Unlock a running report (stuck scan) and restart it immediately. */
+    /** Unlock a running report (stuck scan) and restart it immediately.
+     *  requeueReport resets progress and rotates the run token so the old
+     *  (possibly still alive) run aborts instead of racing the restart. */
     @requireSudo
     @param('reportId', Types.ObjectId)
     async postQueueReset(domainId: string, reportId: ObjectId) {
         const report = await collReport.findOne({ _id: reportId, domainId });
         if (report?.status === 'running') {
-            await casStatus(reportId, 'running', 'waiting');
+            await requeueReport(reportId);
             startScanNow(reportId);
         }
         this.response.redirect = this.url('domain_sim_list');
@@ -304,6 +307,7 @@ export class SimDetailHandler extends SimBaseHandler {
             urlRecord: (rid: ObjectId) => this.url('record_detail', { rid }),
             urlGraph: this.url('domain_sim_graph', { tid }),
             urlStatus: this.url('domain_sim_status', { tid }),
+            urlDebug: this.url('domain_sim_debug', { tid }),
             urlContest: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_detail', { tid }),
             urlContestManage: this.url(tdoc.rule === 'homework' ? 'homework_detail' : 'contest_manage', { tid }),
             qs: `level=${minLevel}${pid ? `&pid=${pid}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}`,
@@ -333,6 +337,10 @@ export class SimDetailHandler extends SimBaseHandler {
     @param('tid', Types.ObjectId)
     async postRunNow(domainId: string, tid: ObjectId) {
         const report = await getActiveReport(domainId, tid);
+        this.ctx.logger.info(
+            'sim runNow %s: active=%s(%s)',
+            tid.toHexString(), report?._id.toHexString() ?? 'none', report?.status ?? '-',
+        );
         if (report?.status === 'waiting') startScanNow(report._id);
         this.response.redirect = this.url('domain_sim_detail', { tid });
     }
@@ -412,8 +420,7 @@ export class SimGraphHandler extends SimBaseHandler {
     }
 }
 
-export class SimGraphApiHandler extends SimBaseHandler {
-    @param('tid', Types.ObjectId)
+export class SimGraphApiHandler extends SimBaseHandler {    @param('tid', Types.ObjectId)
     @param('level', Types.Range(['1', '2', '3']), true)
     async get(domainId: string, tid: ObjectId, level = '1') {
         const minLevel = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
@@ -433,5 +440,77 @@ export class SimGraphApiHandler extends SimBaseHandler {
             pairs, udict, pdict, minLevel as 1 | 2 | 3,
             (pairId) => this.url('domain_sim_diff', { tid, pairId: new ObjectId(pairId) }),
         );
+    }
+}
+
+/**
+ * One-shot, read-only diagnostics for a contest's similarity state: the
+ * report state machine, the schedule queue, what a scan would collect and
+ * the fingerprint cache. Paste target for "scan finds nothing / stuck"
+ * reports — every layer in one JSON payload.
+ */
+export class SimDebugHandler extends SimBaseHandler {
+    @param('tid', Types.ObjectId)
+    async get(domainId: string, tid: ObjectId) {
+        const cfg = readConfig(this.ctx);
+        const [tdoc, reports, tasks, rdocs] = await Promise.all([
+            ContestModel.get(domainId, tid),
+            collReport.find({ domainId, tid }).sort({ createdAt: -1 }).limit(10).toArray(),
+            this.ctx.db.collection('schedule').find({
+                subType: { $in: ['sim.scan', 'sim.scan.precheck', 'sim.sweep'] },
+                $or: [{ domainId }, { domainId: { $exists: false } }],
+            }).sort({ _id: -1 }).limit(20).toArray(),
+            RecordModel.getMulti(domainId, { contest: tid })
+                .project({ pid: 1, uid: 1, lang: 1, code: 1, files: 1 }).toArray(),
+        ]);
+        // what each mode would collect from these records
+        const latest = new Map<string, any>();
+        const users = new Set<number>();
+        const perPid = new Map<number, number>();
+        const langs = new Map<string, number>();
+        let noSource = 0;
+        for (const rdoc of rdocs) {
+            const key = `${rdoc.uid}:${rdoc.pid}`;
+            if (!latest.has(key)) latest.set(key, rdoc); // _id desc not sorted here; set-unique per pair is close enough for diagnostics
+            users.add(rdoc.uid);
+            perPid.set(rdoc.pid, (perPid.get(rdoc.pid) ?? 0) + 1);
+            const l = String(rdoc.lang || '?');
+            langs.set(l, (langs.get(l) ?? 0) + 1);
+            if (!rdoc.code && !rdoc.files?.code) noSource++;
+        }
+        const ridHexes = Array.from(latest.values(), (r) => r._id as ObjectId);
+        const fpDocs = await collFp.find({ rid: { $in: ridHexes } })
+            .project({ k: 1, schema: 1 }).toArray();
+        this.response.body = {
+            now: new Date().toISOString(),
+            contest: tdoc ? {
+                tid: String(tid), title: tdoc.title, rule: tdoc.rule,
+                beginAt: tdoc.beginAt, endAt: tdoc.endAt,
+                done: ContestModel.isDone(tdoc), pids: tdoc.pids?.length,
+            } : null,
+            effectiveConfig: cfg,
+            records: {
+                total: rdocs.length,
+                distinctUsers: users.size,
+                latestModeSubmissions: latest.size,
+                perPid: Object.fromEntries(perPid),
+                langs: Object.fromEntries(langs),
+                noReadableSource: noSource,
+            },
+            fingerprintCache: {
+                docs: fpDocs.length,
+                reusable: fpDocs.filter((d) => d.k === cfg.k && d.schema === FP_SCHEMA).length,
+            },
+            reports: reports.map((r) => ({
+                _id: String(r._id), status: r.status, mode: r.mode,
+                createdAt: r.createdAt, startedAt: r.startedAt, finishedAt: r.finishedAt,
+                lockedAt: r.lockedAt, progress: r.progress, stats: r.stats ?? null,
+                error: r.error ?? null, triggeredBy: r.triggeredBy, config: r.config,
+            })),
+            scheduleTasks: tasks.map((t) => ({
+                _id: String(t._id), subType: t.subType, executeAfter: t.executeAfter,
+                interval: t.interval ?? null, reportId: t.reportId ? String(t.reportId) : null,
+            })),
+        };
     }
 }
