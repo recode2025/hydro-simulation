@@ -11,6 +11,7 @@ import {
 } from 'hydrooj';
 import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
+import { runInBackground } from './background';
 import { buildGraph } from './graph';
 import { buildUserSummary } from './lib/userSummary';
 import { diffCellLimit, fetchCode, readConfig, runDetection } from './detect';
@@ -74,7 +75,7 @@ async function triggerScan(
         triggeredBy: uid,
     });
     if (!reportId) return false;
-    startScanNow(ctx, reportId);
+    startScanNow(reportId);
     return true;
 }
 
@@ -88,9 +89,13 @@ async function triggerScan(
  * rerun all live inside runDetection. Only automatic triggers (post-contest
  * precheck / sweep catch-up) still go through the schedule queue, where
  * persistence and retry matter.
+ *
+ * NOT ctx.setImmediate: the framework disposes the request's cordis scope
+ * when the response completes, which CANCELS pending setImmediates — the
+ * callback must never fire on the request context (see background.ts).
  */
-function startScanNow(ctx: Context, reportId: ObjectId) {
-    ctx.setImmediate(async () => {
+function startScanNow(reportId: ObjectId) {
+    runInBackground(async (ctx) => {
         try {
             const ok = await casStatus(reportId, 'waiting', 'running', { startedAt: new Date() });
             if (!ok) return; // already running / done / deleted — nothing to do
@@ -172,7 +177,7 @@ export class SimListHandler extends SimBaseHandler {
     @param('reportId', Types.ObjectId)
     async postQueueRun(domainId: string, reportId: ObjectId) {
         const report = await collReport.findOne({ _id: reportId, domainId });
-        if (report?.status === 'waiting') startScanNow(this.ctx, reportId);
+        if (report?.status === 'waiting') startScanNow(reportId);
         this.response.redirect = this.url('domain_sim_list');
     }
 
@@ -192,7 +197,7 @@ export class SimListHandler extends SimBaseHandler {
         const report = await collReport.findOne({ _id: reportId, domainId });
         if (report?.status === 'running') {
             await casStatus(reportId, 'running', 'waiting');
-            startScanNow(this.ctx, reportId);
+            startScanNow(reportId);
         }
         this.response.redirect = this.url('domain_sim_list');
     }
@@ -204,7 +209,7 @@ export class SimListHandler extends SimBaseHandler {
         const report = await collReport.findOne({ _id: reportId, domainId });
         if (report?.status === 'failed') {
             await casStatus(reportId, 'failed', 'waiting');
-            startScanNow(this.ctx, reportId);
+            startScanNow(reportId);
         }
         this.response.redirect = this.url('domain_sim_list');
     }

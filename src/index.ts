@@ -11,6 +11,7 @@
 import { ContestModel, PERM, ScheduleModel, SettingModel, definePlugin } from 'hydrooj';
 import type { Context } from 'hydrooj';
 import { ObjectId } from 'mongodb';
+import { runInBackground, setBackgroundContext } from './background';
 import { readConfig, runDetection } from './detect';
 import {
     SimDiffHandler, SimDetailHandler, SimGraphApiHandler, SimGraphHandler, SimListHandler,
@@ -70,6 +71,10 @@ async function scheduleForContest(ctx: Context, domainId: string, tid: ObjectId,
 export default definePlugin({
     name: 'hydrooj-similarity',
     async apply(ctx: Context) {
+        // capture the long-lived plugin context FIRST: every background
+        // execution path (manual "scan now", worker handlers) runs on it,
+        // never on a request ctx (which is disposed with the response)
+        setBackgroundContext(ctx);
         ctx.setting.SystemSetting(...SETTINGS);
 
         // NOTE: apply() performs NO database operations. Depending on cordis
@@ -114,9 +119,7 @@ export default definePlugin({
                                 { $set: { lockedAt: new Date(), startedAt: new Date() } },
                             );
                             c.logger.warn('sim.scan %s: reclaimed stale running report, restarting', reportId.toHexString());
-                            c.setImmediate(() => {
-                                runDetection(c, reportId).catch((e) => c.logger.error(e));
-                            });
+                            runInBackground((bg) => runDetection(bg, reportId));
                         } else {
                             // waiting = another task claimed it first (dup); done/
                             // failed/gone = expected after admin actions
@@ -124,11 +127,7 @@ export default definePlugin({
                         }
                         return;
                     }
-                    c.setImmediate(() => {
-                        runDetection(c, reportId).catch(async (e) => {
-                            c.logger.error(e);
-                        });
-                    });
+                    runInBackground((bg) => runDetection(bg, reportId));
                 } catch (e) {
                     // the schedule task is consumed the moment this handler
                     // runs; if we fail before claiming the report it would
@@ -295,7 +294,15 @@ export default definePlugin({
         // taking the whole app down — the plugin degrades to manual scans.
         ctx.on('app/started', async () => {
             try {
-                await ensureIndexes(ctx);
+                // index creation must NEVER disable the sweep bootstrap below:
+                // a failure here (old mongo, option conflict) would silently
+                // kill queue recovery, which is what rescues stuck reports
+                try {
+                    await ensureIndexes(ctx);
+                } catch (e) {
+                    ctx.logger.error('sim ensureIndexes failed (continuing)');
+                    ctx.logger.error(e);
+                }
                 // NOTE: NODE_APP_INSTANCE is only set under PM2 cluster mode.
                 // A plain `hydrooj serve` leaves it undefined — the stock
                 // `!== '0'` guard would skip sweep bootstrap entirely in dev,
