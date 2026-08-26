@@ -204,7 +204,7 @@
   </div>
   <div class="section__body no-padding">
   {% if user and not filterUdoc %}
-    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain: {0}')|format(user) }}</p>
+    <p class="sim-hint" style="padding: 10px 16px; margin: 0;">{{ _('No such user in this domain: {0}').format(user) }}</p>
   {% endif %}
   {% if not pairs.length %}
     {{ nothing.render('No similar pair found...') }}
